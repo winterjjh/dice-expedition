@@ -445,17 +445,17 @@ func can_use(i: int, target) -> bool:
 			return false
 		return true
 	if k == "echo":
-		return echo_source(h) != null
+		return not echo_source(h).is_empty()
 	return true
 
 
-func echo_source(h: Dictionary):
+func echo_source(h: Dictionary) -> Dictionary:
 	var n := heroes.size()
 	for step in range(1, n):
 		var o: Dictionary = heroes[(h["i"] - step + n) % n]
 		if o["hp"] > 0 and o["face"] != null and o["face"]["k"] != "echo":
 			return o
-	return null
+	return {}
 
 
 func use_die(i: int, target = null) -> bool:
@@ -586,7 +586,7 @@ func use_die(i: int, target = null) -> bool:
 		"harmony":
 			_harmony(h, n)
 		"echo":
-			var src = echo_source(h)
+			var src: Dictionary = echo_source(h)
 			h["face"] = src["face"].duplicate()
 			h["face_idx"] = -1
 			h["used"] = false
