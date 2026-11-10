@@ -1,0 +1,27 @@
+{
+  "shieldman":   { "name": "방패병", "role": "front", "hp": 9, "faces": [["taunt",1],["shieldadj",2],["shield",2],["atk",2],["guardhit",1],["blank"]], "promo": ["bulwark","thornknight"], "desc": "아군 대신 맞아 주는 방어의 기둥" },
+  "gladiator":   { "name": "검투사", "role": "front", "hp": 8, "faces": [["momentum",2],["momentum",2],["atk",3],["bloodprice"],["guardhit",1],["blank"]], "promo": ["berserker","swordsaint"], "desc": "기세를 이어 갈수록 강해지는 전사" },
+  "archer":      { "name": "궁수", "role": "shooter", "hp": 6, "faces": [["atk",3],["aim"],["pierce",2],["atk",2],["multi",1],["blank"]], "promo": ["sniper","volley"], "desc": "한 턴 숨을 고르면 세 배로 꽂히는 화살" },
+  "rogue":       { "name": "도적", "role": "shooter", "hp": 5, "faces": [["steal"],["poison",2],["atk",2],["execute",3],["poison",1],["blank"]], "promo": ["venomist","assassin"], "desc": "적의 주사위를 훔쳐 쓰는 손버릇" },
+  "pyro":        { "name": "화염술사", "role": "mage", "hp": 5, "faces": [["heat",2],["heat",1],["mana",2],["all",1],["atk",2],["blank"]], "spell": "fireball", "promo": ["flamelord","bomber"], "desc": "열을 모아 터뜨리는 위험한 마법" },
+  "frost":       { "name": "서리술사", "role": "mage", "hp": 5, "faces": [["freeze"],["rewind"],["mana",2],["stun"],["shield",1],["blank"]], "spell": "frostjail", "promo": ["icequeen","stormcaller"], "desc": "적의 주사위를 얼리고 되감는 술사" },
+  "healer":      { "name": "치유사", "role": "support", "hp": 5, "faces": [["heal",3],["seed",2],["link"],["healall",1],["mana",1],["blank"]], "spell": "mend", "promo": ["highpriest","battlepriest"], "desc": "생명을 잇고 씨앗을 심는 손길" },
+  "bard":        { "name": "음유시인", "role": "support", "hp": 5, "faces": [["harmony",1],["echo"],["healall",1],["mana",1],["shield",1],["blank"]], "spell": "courage", "promo": ["wardrummer","illusionist"], "desc": "동료의 주사위에 화음을 얹는 노래꾼" },
+
+  "bulwark":     { "name": "성벽 수호자", "role": "front", "hp": 12, "faces": [["taunt",2],["shieldadj",3],["shield",3],["shieldadj",2],["guardhit",2],["atk",2]], "desc": "무너지지 않는 방패" },
+  "thornknight": { "name": "가시 기사", "role": "front", "hp": 11, "faces": [["taunt",1],["guardhit",3],["guardhit",2],["atk",3],["shieldadj",2],["atk",2]], "desc": "막으면서 찌르는 기사" },
+  "berserker":   { "name": "광전사", "role": "front", "hp": 10, "faces": [["momentum",3],["momentum",3],["atk",5],["bloodprice"],["atk",4],["blank"]], "desc": "멈추지 않는 연격" },
+  "swordsaint":  { "name": "검성", "role": "front", "hp": 10, "faces": [["momentum",3],["multi",2],["guardhit",2],["all",2],["atk",4],["shield",2]], "desc": "빈틈없는 검술" },
+  "sniper":      { "name": "저격수", "role": "shooter", "hp": 7, "faces": [["atk",5],["aim"],["aim"],["execute",5],["atk",4],["pierce",3]], "desc": "한 발에 끝내는 사수" },
+  "volley":      { "name": "연사수", "role": "shooter", "hp": 7, "faces": [["multi",2],["pierce",3],["all",2],["multi",2],["atk",3],["aim"]], "desc": "화살비를 퍼붓는 사수" },
+  "venomist":    { "name": "독술사", "role": "shooter", "hp": 6, "faces": [["poison",3],["poison",3],["steal"],["poison",4],["execute",4],["atk",2]], "desc": "모든 것을 썩게 하는 독" },
+  "assassin":    { "name": "암살자", "role": "shooter", "hp": 6, "faces": [["steal"],["steal"],["execute",6],["multi",2],["atk",4],["poison",2]], "desc": "그림자 속의 소매치기 칼날" },
+  "flamelord":   { "name": "화염 군주", "role": "mage", "hp": 6, "faces": [["heat",3],["heat",2],["mana",3],["all",2],["atk",3],["mana",2]], "spell": "inferno", "desc": "업화를 부리는 대마법사" },
+  "bomber":      { "name": "폭렬술사", "role": "mage", "hp": 6, "faces": [["heat",3],["heat",3],["all",3],["atk",4],["mana",1],["heat",2]], "spell": "blast", "desc": "터뜨리는 것이 취미" },
+  "icequeen":    { "name": "빙결 여제", "role": "mage", "hp": 6, "faces": [["freeze"],["rewind"],["stun"],["mana",3],["shield",2],["stun"]], "spell": "frostjail", "desc": "모든 것을 멈추게 하는 냉기" },
+  "stormcaller": { "name": "폭풍술사", "role": "mage", "hp": 6, "faces": [["rewind"],["all",2],["mana",3],["stun"],["atk",3],["freeze"]], "spell": "storm", "desc": "번개를 부르는 술사" },
+  "highpriest":  { "name": "대사제", "role": "support", "hp": 7, "faces": [["heal",5],["seed",3],["healall",2],["link"],["mana",2],["healall",2]], "spell": "prayer", "desc": "죽음마저 되돌리는 기도" },
+  "battlepriest":{ "name": "전투 사제", "role": "support", "hp": 8, "faces": [["heal",3],["seed",2],["link"],["atk",3],["healall",1],["guardhit",2]], "spell": "mend", "desc": "철퇴를 든 성직자" },
+  "wardrummer":  { "name": "전쟁 고수", "role": "support", "hp": 7, "faces": [["harmony",2],["echo"],["healall",2],["mana",2],["shieldadj",2],["harmony",1]], "spell": "warsong", "desc": "북소리로 진군을 이끔" },
+  "illusionist": { "name": "환술사", "role": "support", "hp": 6, "faces": [["echo"],["echo"],["harmony",2],["stun"],["mana",2],["rewind"]], "spell": "confuse", "desc": "적의 눈을 속이는 환영" }
+}

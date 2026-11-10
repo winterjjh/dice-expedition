@@ -1,0 +1,34 @@
+; Engine configuration file.
+; Godot 4.3
+
+config_version=5
+
+[application]
+
+config/name="주사위 원정대"
+config/description="직업 주사위 파티 로그라이크"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.3", "GL Compatibility")
+
+[autoload]
+
+Data="*res://scripts/data.gd"
+Game="*res://scripts/game.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=800
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=0
+
+[gui]
+
+timers/tooltip_delay_sec=0.25
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true

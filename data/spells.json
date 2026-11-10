@@ -1,0 +1,12 @@
+{
+  "fireball":  { "name": "불덩이",     "cost": 3, "t": "none",  "text": "모든 적에게 3 피해" },
+  "inferno":   { "name": "업화",       "cost": 4, "t": "none",  "text": "모든 적에게 5 피해" },
+  "blast":     { "name": "폭렬",       "cost": 2, "t": "enemy", "text": "적 하나에게 6 피해" },
+  "frostjail": { "name": "서리 감옥",  "cost": 3, "t": "enemy", "text": "적 하나 기절 + 2 피해" },
+  "storm":     { "name": "번개 사슬",  "cost": 3, "t": "none",  "text": "모든 적에게 2 피해, 약화 1" },
+  "courage":   { "name": "용기의 노래", "cost": 2, "t": "none", "text": "이번 턴 아군 공격 계열 면 +1" },
+  "warsong":   { "name": "전쟁의 북",  "cost": 3, "t": "none",  "text": "이번 턴 아군 공격 계열 면 +2" },
+  "mend":      { "name": "치유의 빛",  "cost": 3, "t": "none",  "text": "모든 아군 3 회복" },
+  "prayer":    { "name": "부활의 기도", "cost": 4, "t": "dead", "text": "쓰러진 아군 하나를 체력 절반으로 부활" },
+  "confuse":   { "name": "혼란",       "cost": 2, "t": "enemy", "text": "적 하나 기절" }
+}
