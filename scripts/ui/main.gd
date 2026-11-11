@@ -322,11 +322,11 @@ func continue_run() -> void:
 func show_rules() -> void:
 	var v := open_overlay("규칙")
 	var lines := [
-		"원정대 · 전위·사수·마법·지원 역할의 영웅 네 명. 영웅마다 직업 고유의 주사위가 있고, 여섯 면에 저마다 기능이 새겨져 있음.",
+		"원정대 · 전위·사수·마법·지원 역할의 영웅 네 명. 영웅마다 직업 고유의 주사위가 있고, 여섯 면 모두가 그 직업만의 스킬. 매 턴 네 영웅에게 나온 스킬 조합으로 싸움.",
 		"굴림 단계 · 매 턴 모든 주사위를 굴림. 마음에 드는 주사위는 눌러서 고정하고 나머지를 다시 굴림 (턴당 2번).",
 		"사용 단계 · 주사위를 누르고 대상을 고르면 발동. 공격 계열은 적, 방어·회복 계열은 아군 대상. 대상이 필요 없는 면은 누르면 바로 발동.",
 		"적의 행동 · 적도 매 턴 자기 주사위를 굴려 무엇을 누구에게 할지 미리 보여 줌. 턴을 마치기 전에 쓰러뜨리거나 기절시키면 취소.",
-		"직업 고유 기능 · 대신 맞기, 기세, 조준, 훔치기, 과열, 얼리기·되감기, 생명 연결·씨앗, 화음·메아리 등. 면에 마우스를 올리면 설명 표시.",
+		"스킬 조합 · 얼린 적에게 산산조각, 독 걸린 적에게 급소 찌르기, 표식 찍은 적에게 집중 공격, 앙코르로 동료 스킬 한 번 더 등. 면에 마우스를 올리면 설명 표시.",
 		"각인 · 같은 면을 런 동안 여러 번 쓰면(5번, 12번) 그 면이 손에 익어 영구히 강해짐.",
 		"마나와 주문 · 마나는 전투 내내 유지. 마법·지원 직업의 고유 주문에 사용.",
 		"성장 · 전투 보상으로 면 강화나 장비. 1막 보스 뒤 상위 직업으로 승급, 2막 보스 뒤 숙련. 영웅은 전투가 끝나면 모두 회복.",
@@ -588,6 +588,10 @@ func enemy_card(parent: Node, e: Dictionary, pickable: bool) -> void:
 		st.append("약화 %d" % e["weak"])
 	if e["frozen"]:
 		st.append("얼어붙음")
+	if e["stunned"]:
+		st.append("행동 불가")
+	if e["mark"] > 0:
+		st.append("표식 (받는 피해 +%d)" % e["mark"])
 	if st.size() > 0:
 		lbl(v, " · ".join(PackedStringArray(st)), 14, CAT["def"])
 	if e["hp"] > 0 and e["face"] != null:
@@ -655,6 +659,16 @@ func hero_card(parent: Node, h: Dictionary, pickable: bool) -> void:
 		st.append("열 %d/5" % h["heat"])
 	if h["seed"] > 0:
 		st.append("씨앗 %d" % h["seed"])
+	if h["thorns"] > 0:
+		st.append("가시 %d" % h["thorns"])
+	if h["dodge"]:
+		st.append("연막")
+	if h["guard"]:
+		st.append("수호 기도")
+	if h["ward"]:
+		st.append("정화")
+	if h["keep_shield"]:
+		st.append("얼음 갑옷")
 	if h["link"] >= 0:
 		st.append("연결: " + combat.hero_label(combat.heroes[h["link"]]))
 	if h["taunt"]:
@@ -684,15 +698,27 @@ func die_widget(parent: Node, face: Dictionary, locked: bool, selected: bool, us
 	var cat: String = Data.face_cat(face)
 	var col: Color = CAT[cat]
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(100, 86)
-	var info: Dictionary = Data.faces[face["k"]]
+	b.custom_minimum_size = Vector2(124, 86)
 	var num := ""
 	if not face["k"] in Data.NO_NUMBER:
 		num = str(face["n"])
-	b.text = info["w"] + (("\n" + num) if num != "" else "")
+	b.text = Data.face_name(face)
+	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	b.tooltip_text = Data.face_desc(face)
 	b.add_theme_font_override("font", bold)
-	b.add_theme_font_size_override("font_size", 20 if num != "" else 18)
+	b.add_theme_font_size_override("font_size", 18)
+	if num != "":
+		var nl := Label.new()
+		nl.text = num
+		nl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		nl.add_theme_font_override("font", bold)
+		nl.add_theme_font_size_override("font_size", 13)
+		nl.add_theme_color_override("font_color", C_IVORY)
+		nl.add_theme_stylebox_override("normal", sb(col.darkened(0.25), col.darkened(0.25), 9, 0, 6))
+		nl.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 5)
+		nl.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		nl.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		b.add_child(nl)
 	var bg := C_IVORY if cat != "blank" else Color("#9aa39d")
 	var border := col
 	if locked:
@@ -711,8 +737,8 @@ func die_widget(parent: Node, face: Dictionary, locked: bool, selected: bool, us
 	for k in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_disabled_color"]:
 		b.add_theme_color_override(k, C_INK)
 	if locked:
-		b.text += "\n고정"
-		b.add_theme_font_size_override("font_size", 16)
+		b.text += "\n(고정)"
+		b.add_theme_font_size_override("font_size", 15)
 	if used:
 		b.modulate = Color(1, 1, 1, 0.25)
 	if cb.is_valid():
@@ -895,7 +921,7 @@ func on_win() -> void:
 	var v := panel(root)
 	lbl(v, "승리", 26, C_BRASS, true)
 	lbl(v, "골드 +%d. 보상 하나 선택." % gold, 17, C_MUTED)
-	choice(v, "주사위 면 강화", "영웅 하나의 면 하나를 골라 강화 (빈 면은 채움)", choose_face_upgrade.bind("주사위 면 강화", after, Callable()))
+	choice(v, "주사위 면 강화", "영웅 하나의 스킬 면 하나를 골라 강화", choose_face_upgrade.bind("주사위 면 강화", after, Callable()))
 	var keys := Data.items.keys()
 	keys.shuffle()
 	for id in keys.slice(0, 3 if kind == "elite" else 2):
@@ -929,7 +955,7 @@ func choose_face_upgrade(title: String, done: Callable, cancel: Callable) -> voi
 	top_bar()
 	var area := scroll_area(root)
 	lbl(area, title, 26, C_BRASS, true)
-	lbl(area, "강화할 면 선택. 숫자가 있는 면은 +1, 빈 면은 그 영웅의 주력 면으로 채워짐. 숫자가 없는 기능 면은 강화 불가.", 16, C_MUTED, false, true)
+	lbl(area, "강화할 스킬 선택. 위력 수치가 있는 스킬은 +1. 수치가 없는 스킬은 강화 불가.", 16, C_MUTED, false, true)
 	for p in Game.run["party"]:
 		var pv := panel(area)
 		lbl(pv, Data.hero_name(p), 19, C_TEXT, true)
@@ -1033,7 +1059,7 @@ func _draw_mastery() -> void:
 	top_bar()
 	var area := scroll_area(root)
 	lbl(area, "2막 돌파 · 숙련", 26, C_BRASS, true)
-	lbl(area, "모든 영웅이 숙련 단계에 오름. 최대 체력 +2, 숫자가 있는 면 전부 +1, 빈 면은 주력 면으로 채워짐.", 16, C_MUTED, false, true)
+	lbl(area, "모든 영웅이 숙련 단계에 오름. 최대 체력 +2, 위력 수치가 있는 스킬 전부 +1.", 16, C_MUTED, false, true)
 	for p in Game.run["party"]:
 		var tmp: Dictionary = p.duplicate(true)
 		tmp["mastered"] = true

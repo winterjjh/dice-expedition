@@ -33,6 +33,7 @@ func _init(data, run_state: Dictionary, fight_kind: String, group: Array) -> voi
 			"face": null, "face_idx": -1, "locked": false, "used": true, "rolled": false, "fresh": false,
 			"streak": 0, "mom_used": false, "aimed": false, "aim_pending": false, "heat": 0,
 			"seed": 0, "link": -1, "hexed": false, "hexed_now": false, "taunt": false, "double": false,
+			"thorns": 0, "dodge": false, "guard": false, "ward": false, "keep_shield": false,
 		})
 	for j in group.size():
 		var key: String = group[j]
@@ -41,7 +42,7 @@ func _init(data, run_state: Dictionary, fight_kind: String, group: Array) -> voi
 			"i": j, "key": key, "name": e["name"], "hp": e["hp"], "maxhp": e["hp"],
 			"faces": e["faces"].duplicate(true), "phase2": e["phase2"], "phase_msg": e["phase_msg"],
 			"shield": 0, "poison": 0, "weak": 0, "stunned": false, "face": null, "target": -1,
-			"frozen": false, "boss": fight_kind == "boss" and j == 0, "phased": false,
+			"frozen": false, "mark": 0, "boss": fight_kind == "boss" and j == 0, "phased": false,
 		})
 	mana = 3 if party_has("tome") else 0
 
@@ -88,6 +89,10 @@ func face_value(h: Dictionary) -> int:
 		n += atk_bonus
 		if f["k"] == "momentum":
 			n += int(h["streak"])
+		elif f["k"] == "bash":
+			n += int(h["shield"])
+		elif f["k"] == "frenzy":
+			n += (int(h["maxhp"]) - int(h["hp"])) / 2
 		if h["aimed"]:
 			n *= 3
 	if h["double"]:
@@ -172,7 +177,13 @@ func start_turn() -> void:
 	atk_bonus = 0
 	phase = "roll"
 	for h in heroes:
-		h["shield"] = 0
+		if not h["keep_shield"]:
+			h["shield"] = 0
+		h["keep_shield"] = false
+		h["thorns"] = 0
+		h["dodge"] = false
+		h["guard"] = false
+		h["ward"] = false
 		h["taunt"] = false
 		h["link"] = -1
 		h["double"] = false
@@ -207,6 +218,7 @@ func start_turn() -> void:
 		return
 	for e in live_enemies():
 		e["stunned"] = false
+		e["mark"] = 0
 		e["weak"] = 0
 		e["shield"] = 0
 		roll_enemy(e)
@@ -299,10 +311,12 @@ func confirm() -> void:
 
 # ---------------- damage helpers ----------------
 
-func hit_enemy(e: Dictionary, n: int, src = null) -> int:
+func hit_enemy(e: Dictionary, n: int, src = null, ignore_shield := false) -> int:
 	if e["hp"] <= 0:
 		return 0
-	var ab: int = min(int(e["shield"]), n)
+	if n > 0:
+		n += int(e["mark"])
+	var ab: int = 0 if ignore_shield else min(int(e["shield"]), n)
 	e["shield"] -= ab
 	var dmg := n - ab
 	e["hp"] = max(0, int(e["hp"]) - dmg)
@@ -335,6 +349,11 @@ func _apply_hero_damage(h: Dictionary, n: int) -> int:
 	var dmg := n - ab
 	h["hp"] = max(0, int(h["hp"]) - dmg)
 	ev("hero", h["i"], "-%d" % dmg if dmg > 0 else "막아냄", "hurt" if dmg > 0 else "def")
+	if h["hp"] <= 0 and h["guard"]:
+		h["hp"] = 1
+		h["guard"] = false
+		ev("hero", h["i"], "버팀", "heal")
+		log_add("%s · 수호 기도로 버팀" % hero_label(h))
 	if h["hp"] <= 0:
 		h["face"] = null
 		log_add("%s 쓰러짐" % hero_label(h))
@@ -344,6 +363,13 @@ func _apply_hero_damage(h: Dictionary, n: int) -> int:
 func hurt_hero(h: Dictionary, n: int, attacker = null) -> void:
 	if h["hp"] <= 0:
 		return
+	if attacker != null and h["dodge"]:
+		h["dodge"] = false
+		ev("hero", h["i"], "회피", "trick")
+		log_add("%s · 연막으로 공격을 피함" % hero_label(h))
+		return
+	if attacker != null and n > 0 and int(h["thorns"]) > 0:
+		hit_enemy(attacker, int(h["thorns"]))
 	var partner = null
 	if h["link"] >= 0 and heroes[h["link"]]["hp"] > 0:
 		partner = heroes[h["link"]]
@@ -443,6 +469,12 @@ func can_use(i: int, target) -> bool:
 			return false
 		if k == "bloodprice" and (target["used"] or target["face"] == null or int(h["hp"]) <= 2):
 			return false
+		if k in ["encore", "retune"] and (target["i"] == h["i"] or target["face"] == null):
+			return false
+		if k == "encore" and (not target["used"] or target["face"]["k"] in ["encore", "blank"]):
+			return false
+		if k == "retune" and (target["used"] or target["hexed_now"]):
+			return false
 		return true
 	if k == "echo":
 		return not echo_source(h).is_empty()
@@ -471,16 +503,16 @@ func use_die(i: int, target = null) -> bool:
 		"atk":
 			hit_enemy(target, n, h)
 			_glove(h, target)
-			log_add("%s · 공격 %d → %s" % [who, n, target["name"]])
+			log_add("%s · %s %d → %s" % [who, D.face_name(f), n, target["name"]])
 		"multi":
 			hit_enemy(target, n, h)
 			hit_enemy(target, n, h)
 			_glove(h, target)
-			log_add("%s · 연타 %d×2 → %s" % [who, n, target["name"]])
+			log_add("%s · %s %d×2 → %s" % [who, D.face_name(f), n, target["name"]])
 		"all":
 			for e in live_enemies():
 				hit_enemy(e, n, h)
-			log_add("%s · 전체 %d" % [who, n])
+			log_add("%s · %s %d" % [who, D.face_name(f), n])
 		"pierce":
 			var nxt = next_enemy(target)
 			hit_enemy(target, n, h)
@@ -495,7 +527,7 @@ func use_die(i: int, target = null) -> bool:
 		"guardhit":
 			hit_enemy(target, n, h)
 			shield_hero(h, n)
-			log_add("%s · 반격 %d" % [who, n])
+			log_add("%s · %s %d" % [who, D.face_name(f), n])
 		"execute":
 			if target["hp"] <= n:
 				target["hp"] = 0
@@ -511,7 +543,7 @@ func use_die(i: int, target = null) -> bool:
 		"stun":
 			target["stunned"] = true
 			ev("enemy", target["i"], "기절", "trick")
-			log_add("%s · %s 기절" % [who, target["name"]])
+			log_add("%s · %s → %s 행동 취소" % [who, D.face_name(f), target["name"]])
 		"steal":
 			_steal(h, target)
 			return true
@@ -571,18 +603,10 @@ func use_die(i: int, target = null) -> bool:
 			h["aim_pending"] = true
 			log_add("%s · 조준 (다음 턴 공격 세 배)" % who)
 		"heat":
-			h["heat"] += n
-			if h["heat"] >= 5:
-				h["heat"] = 0
-				for e in live_enemies():
-					hit_enemy(e, 6, h)
-				hurt_raw_hero(h, 2, "폭발")
-				log_add("%s · 과열 폭발! 모든 적 6 피해" % who)
-			else:
-				log_add("%s · 열 %d/5" % [who, h["heat"]])
+			_add_heat(h, n)
 		"mana":
 			mana += n
-			log_add("%s · 마나 +%d" % [who, n])
+			log_add("%s · %s · 마나 +%d" % [who, D.face_name(f), n])
 		"harmony":
 			_harmony(h, n)
 		"echo":
@@ -593,11 +617,128 @@ func use_die(i: int, target = null) -> bool:
 			ev("hero", h["i"], "메아리", "trick")
 			log_add("%s · 메아리로 %s의 %s 복사" % [who, hero_label(src), D.face_title(src["face"])])
 			return true
+		"bash", "frenzy":
+			hit_enemy(target, n, h)
+			log_add("%s · %s %d → %s" % [who, D.face_name(f), n, target["name"]])
+		"thorns":
+			shield_hero(h, n)
+			h["thorns"] += n
+			log_add("%s · 가시 버티기 %d" % [who, n])
+		"wall":
+			for x in alive_heroes():
+				shield_hero(x, n)
+			log_add("%s · %s · 모든 아군 방어 %d" % [who, D.face_name(f), n])
+		"roar":
+			for e in live_enemies():
+				e["weak"] += n
+				ev("enemy", e["i"], "위축 -%d" % n, "trick")
+			log_add("%s · 위압의 함성 · 적 공격 -%d" % [who, n])
+		"duel":
+			hit_enemy(target, n, h)
+			shield_hero(h, n)
+			if target["hp"] > 0 and target["face"] != null and target["face"]["k"] in ["atk", "poison", "hex"]:
+				target["target"] = h["i"]
+			log_add("%s · 결투 신청 %d → %s" % [who, n, target["name"]])
+		"mark":
+			hit_enemy(target, n, h)
+			if target["hp"] > 0:
+				target["mark"] += 2
+				ev("enemy", target["i"], "표식", "trick")
+			log_add("%s · 표식 화살 %d → %s" % [who, n, target["name"]])
+		"suppress":
+			hit_enemy(target, n, h)
+			target["weak"] += n
+			log_add("%s · 견제 사격 %d → %s (공격 -%d)" % [who, n, target["name"], n])
+		"snipe":
+			var sn := n * 2 if int(target["hp"]) >= int(target["maxhp"]) else n
+			hit_enemy(target, sn, h, true)
+			log_add("%s · 저격 %d → %s" % [who, sn, target["name"]])
+		"backstab":
+			var bs := n * 2 if (target["stunned"] or target["frozen"] or int(target["poison"]) > 0) else n
+			hit_enemy(target, bs, h)
+			log_add("%s · 급소 찌르기 %d → %s" % [who, bs, target["name"]])
+		"smoke":
+			target["dodge"] = true
+			ev("hero", target["i"], "연막", "trick")
+			log_add("%s · 연막 → %s" % [who, hero_label(target)])
+		"pilfer":
+			hit_enemy(target, n, h)
+			run["gold"] = int(run.get("gold", 0)) + n
+			ev("hero", h["i"], "금화 +%d" % n, "mana")
+			log_add("%s · 소매치기 %d → %s (금화 +%d)" % [who, n, target["name"], n])
+		"ember":
+			hit_enemy(target, n, h)
+			log_add("%s · 불씨 던지기 %d → %s" % [who, n, target["name"]])
+			_add_heat(h, 1)
+		"firewall":
+			shield_hero(target, n)
+			target["thorns"] += n
+			log_add("%s · 불꽃 장벽 %d → %s" % [who, n, hero_label(target)])
+		"combust":
+			var cb: int = max(2, int(h["heat"]) * 3)
+			if h["aimed"]:
+				cb *= 3
+			if h["double"]:
+				cb *= 2
+			h["heat"] = 0
+			hit_enemy(target, cb, h)
+			log_add("%s · 연소 %d → %s" % [who, cb, target["name"]])
+		"shatter":
+			var sh := n * 3 if (target["stunned"] or target["frozen"]) else n
+			hit_enemy(target, sh, h)
+			log_add("%s · 산산조각 %d → %s" % [who, sh, target["name"]])
+		"icearmor":
+			shield_hero(target, n)
+			target["keep_shield"] = true
+			log_add("%s · 얼음 갑옷 %d → %s" % [who, n, hero_label(target)])
+		"cleanse":
+			target["poison"] = 0
+			target["ward"] = true
+			heal_hero(target, n)
+			ev("hero", target["i"], "정화", "heal")
+			log_add("%s · 정화 → %s" % [who, hero_label(target)])
+		"guardian":
+			target["guard"] = true
+			ev("hero", target["i"], "수호", "heal")
+			log_add("%s · 수호 기도 → %s" % [who, hero_label(target)])
+		"encore":
+			target["used"] = false
+			ev("hero", target["i"], "앙코르", "trick")
+			log_add("%s · 앙코르 → %s의 %s 한 번 더" % [who, hero_label(target), D.face_name(target["face"])])
+		"discord":
+			if not target["stunned"] and target["face"] != null and target["face"]["k"] in ["atk", "all"]:
+				var dv := enemy_value(target)
+				var other = next_enemy(target)
+				if other != null and dv > 0:
+					hit_enemy(other, dv)
+					log_add("%s · 불협화음 · %s의 공격 %d이 %s에게" % [who, target["name"], dv, other["name"]])
+			target["stunned"] = true
+			ev("enemy", target["i"], "불협화음", "trick")
+		"retune":
+			target["face_idx"] = rng.randi_range(0, 5)
+			target["face"] = D.hero_face(target["p"], target["face_idx"])
+			target["fresh"] = true
+			ev("hero", target["i"], "조율", "trick")
+			log_add("%s · 조율 → %s의 주사위가 %s(으)로" % [who, hero_label(target), D.face_title(target["face"])])
 		"blank":
 			log_add("%s · 빈 면" % who)
 	engrave(h)
 	_check_end()
 	return true
+
+
+func _add_heat(h: Dictionary, n: int) -> void:
+	var who := hero_label(h)
+	h["heat"] += n
+	if h["heat"] >= 5:
+		h["heat"] = 0
+		for e in live_enemies():
+			hit_enemy(e, 6, h)
+		hurt_raw_hero(h, 2, "폭발")
+		log_add("%s · 과열 폭발! 모든 적 6 피해" % who)
+	else:
+		ev("hero", h["i"], "열 %d/5" % h["heat"], "atk")
+		log_add("%s · 열 %d/5" % [who, h["heat"]])
 
 
 func _glove(h: Dictionary, target: Dictionary) -> void:
@@ -743,13 +884,17 @@ func end_turn() -> void:
 				log_add("%s의 전체 공격 %d" % [e["name"], n])
 			"poison":
 				var t = _enemy_target(e)
-				if t != null:
+				if t != null and t["ward"]:
+					ev("hero", t["i"], "정화됨", "heal")
+				elif t != null:
 					t["poison"] += n
 					ev("hero", t["i"], "독 %d" % n, "poison")
 					log_add("%s의 독 → %s" % [e["name"], hero_label(t)])
 			"hex":
 				var t = _enemy_target(e)
-				if t != null:
+				if t != null and t["ward"]:
+					ev("hero", t["i"], "정화됨", "heal")
+				elif t != null:
 					t["hexed"] = true
 					ev("hero", t["i"], "저주", "trick")
 					log_add("%s의 저주 → %s (다음 턴 빈 면)" % [e["name"], hero_label(t)])

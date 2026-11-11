@@ -196,7 +196,7 @@ func pick_target(c, h: Dictionary):
 				if e["hp"] <= n:
 					return e
 			return live[0]
-		if k in ["stun", "steal", "rewind"]:
+		if k in ["stun", "steal", "rewind", "discord", "suppress", "duel"]:
 			var worst = live[0]
 			var wv := -1
 			for e in live:
@@ -219,7 +219,14 @@ func pick_target(c, h: Dictionary):
 				if o["i"] != h["i"] and not o["used"] and o["face"] != null and o["face"]["k"] in Data.ATK_FAM:
 					return o
 			return null
-		if k in ["shield", "link"]:
+		if k == "encore":
+			for o in hs:
+				if c.can_use(h["i"], o):
+					return o
+			return null
+		if k == "retune":
+			return null
+		if k in ["shield", "link", "smoke", "guardian", "firewall", "icearmor"]:
 			var best = null
 			var bi := -1
 			for o in hs:

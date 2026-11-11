@@ -2,10 +2,10 @@ extends Node
 ## Loads every balance table from res://data/*.json and holds hero-die helpers.
 ## Used as the autoload "Data"; tests create it with load(...).new().
 
-const ATK_FAM := ["atk", "multi", "all", "pierce", "momentum", "guardhit"]
-const DEF_FAM := ["shield", "shieldadj", "taunt", "guardhit"]
-const HEAL_FAM := ["heal", "healall", "seed"]
-const NO_NUMBER := ["steal", "stun", "freeze", "rewind", "link", "bloodprice", "aim", "echo", "blank"]
+const ATK_FAM := ["atk", "multi", "all", "pierce", "momentum", "guardhit", "bash", "frenzy", "duel", "mark", "suppress", "snipe", "backstab", "pilfer", "ember", "shatter"]
+const DEF_FAM := ["shield", "shieldadj", "taunt", "guardhit", "thorns", "wall", "firewall", "icearmor"]
+const HEAL_FAM := ["heal", "healall", "seed", "cleanse"]
+const NO_NUMBER := ["steal", "stun", "freeze", "rewind", "link", "bloodprice", "aim", "echo", "smoke", "combust", "guardian", "encore", "discord", "retune", "blank"]
 const ENGRAVE_STEPS := [5, 12]
 
 const ROLES := [
@@ -43,7 +43,10 @@ func _read(path: String):
 func conv_faces(arr) -> Array:
 	var out := []
 	for x in arr:
-		out.append({"k": str(x[0]), "n": int(x[1]) if x.size() > 1 else 0})
+		var f := {"k": str(x[0]), "n": int(x[1]) if x.size() > 1 else 0}
+		if x.size() > 2:
+			f["w"] = str(x[2])
+		out.append(f)
 	return out
 
 
@@ -157,18 +160,18 @@ func can_upgrade(p: Dictionary, i: int) -> bool:
 	return f["k"] == "blank" or not f["k"] in NO_NUMBER
 
 
+func face_name(face: Dictionary) -> String:
+	return str(face.get("w", faces[face["k"]]["w"]))
+
+
 func face_short(face: Dictionary) -> String:
-	var info: Dictionary = faces[face["k"]]
-	if face["k"] in NO_NUMBER:
-		return info["s"]
-	return info["s"] + str(face["n"])
+	return face_title(face)
 
 
 func face_title(face: Dictionary) -> String:
-	var info: Dictionary = faces[face["k"]]
 	if face["k"] in NO_NUMBER:
-		return info["w"]
-	return "%s %d" % [info["w"], face["n"]]
+		return face_name(face)
+	return "%s %d" % [face_name(face), face["n"]]
 
 
 func face_desc(face: Dictionary) -> String:
