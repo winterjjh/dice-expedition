@@ -399,14 +399,14 @@ func shield_hero(h: Dictionary, n: int) -> void:
 	ev("hero", h["i"], "방어 +%d" % n, "def")
 
 
-func next_enemy(e: Dictionary):
+func next_enemy(e: Dictionary) -> Dictionary:
 	for j in range(e["i"] + 1, enemies.size()):
 		if enemies[j]["hp"] > 0:
 			return enemies[j]
 	for j in range(0, e["i"]):
 		if enemies[j]["hp"] > 0:
 			return enemies[j]
-	return null
+	return {}
 
 
 func weakest_face(e: Dictionary) -> Dictionary:
@@ -514,9 +514,9 @@ func use_die(i: int, target = null) -> bool:
 				hit_enemy(e, n, h)
 			log_add("%s · %s %d" % [who, D.face_name(f), n])
 		"pierce":
-			var nxt = next_enemy(target)
+			var nxt: Dictionary = next_enemy(target)
 			hit_enemy(target, n, h)
-			if nxt != null:
+			if not nxt.is_empty():
 				hit_enemy(nxt, n, h)
 			log_add("%s · 관통 %d" % [who, n])
 		"momentum":
@@ -708,8 +708,8 @@ func use_die(i: int, target = null) -> bool:
 		"discord":
 			if not target["stunned"] and target["face"] != null and target["face"]["k"] in ["atk", "all"]:
 				var dv := enemy_value(target)
-				var other = next_enemy(target)
-				if other != null and dv > 0:
+				var other: Dictionary = next_enemy(target)
+				if not other.is_empty() and dv > 0:
 					hit_enemy(other, dv)
 					log_add("%s · 불협화음 · %s의 공격 %d이 %s에게" % [who, target["name"], dv, other["name"]])
 			target["stunned"] = true
