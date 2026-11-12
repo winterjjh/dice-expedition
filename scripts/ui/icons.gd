@@ -182,11 +182,19 @@ class G:
 		pg([0.66, 0.6, 0.86, 0.7, 0.7, 0.88])
 
 
+static var cache := {}
+
+
 static func art(kind: String) -> Texture2D:
+	# keep loaded pictures alive: a texture freed before the frame is drawn shows as a white box
+	if cache.has(kind):
+		return cache[kind]
+	var tex: Texture2D = null
 	var path := "res://art/skill/%s.png" % kind
 	if ResourceLoader.exists(path):
-		return load(path)
-	return null
+		tex = load(path)
+	cache[kind] = tex
+	return tex
 
 
 static func draw(ci: CanvasItem, kind: String, r: Rect2, col: Color, bg: Color) -> void:

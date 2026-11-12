@@ -7,6 +7,7 @@ var letter := ""
 var col := Color.WHITE
 var font: Font
 var boss := false
+var plain := false
 
 
 func setup(folder: String, key: String, name_text: String, color: Color, px: float, f: Font, is_boss := false) -> void:
@@ -17,6 +18,7 @@ func setup(folder: String, key: String, name_text: String, color: Color, px: flo
 	col = color
 	font = f
 	boss = is_boss
+	plain = folder == "enemy"
 	custom_minimum_size = Vector2(px, px)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	queue_redraw()
@@ -25,7 +27,7 @@ func setup(folder: String, key: String, name_text: String, color: Color, px: flo
 func _draw() -> void:
 	var s: float = minf(size.x, size.y)
 	var o := (size - Vector2(s, s)) * 0.5
-	if tex != null and tex.has_alpha():
+	if tex != null and plain:
 		# cut-out sprite: no tile behind it
 		draw_texture_rect(tex, Rect2(o, Vector2(s, s)), false)
 		return

@@ -8,7 +8,7 @@ const DieFace = preload("res://scripts/ui/die_face.gd")
 const HpPips = preload("res://scripts/ui/hp_pips.gd")
 const Portrait = preload("res://scripts/ui/portrait.gd")
 const LinkLayer = preload("res://scripts/ui/link_layer.gd")
-const TRAY_DIE := 108.0
+const TRAY_DIE := 100.0
 const ROLE_COL := {"front": Color("#77a9cc"), "shooter": Color("#a9c64a"), "mage": Color("#a988e0"), "support": Color("#8cc47a")}
 const ECAT := {"atk": "atk", "all": "atk", "shield": "def", "heal": "heal", "poison": "poison", "hex": "trick", "blank": "blank"}
 
@@ -592,7 +592,7 @@ func refresh() -> void:
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	# heroes on the left
 	var left := vb(body, 8)
-	left.custom_minimum_size = Vector2(372, 0)
+	left.custom_minimum_size = Vector2(360, 0)
 	left.alignment = BoxContainer.ALIGNMENT_CENTER
 	for h in c.heroes:
 		var pick: bool = (mode == "ally" and h["hp"] > 0) or (mode == "dead" and h["hp"] <= 0)
@@ -652,7 +652,7 @@ func refresh() -> void:
 	info_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	# enemies on the right
 	var right := vb(body, 8)
-	right.custom_minimum_size = Vector2(340, 0)
+	right.custom_minimum_size = Vector2(350, 0)
 	right.alignment = BoxContainer.ALIGNMENT_CENTER
 	for e in c.enemies:
 		enemy_card(right, e, mode == "enemy" and e["hp"] > 0)
@@ -756,7 +756,7 @@ func enemy_card(parent: Node, e: Dictionary, pickable: bool) -> void:
 		var k: String = f["k"]
 		var val: int = combat.enemy_value(e) if k in ["atk", "all"] else int(f["n"])
 		var d = DieFace.new()
-		d.setup(k, val, str(Data.enemy_faces[k]["w"]), CAT[ECAT.get(k, "blank")], 68.0, bold)
+		d.setup(k, val, str(Data.enemy_faces[k]["w"]), CAT[ECAT.get(k, "blank")], 60.0, bold)
 		d.show_label = false
 		d.dim = e["stunned"]
 		d.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -771,7 +771,7 @@ func enemy_card(parent: Node, e: Dictionary, pickable: bool) -> void:
 		lbl(top, "우두머리" + (" · 2단계" if e["phased"] else ""), 12, C_BRASS, true)
 	var br := hb(v, 6)
 	var pips = HpPips.new()
-	pips.setup(int(e["hp"]), int(e["maxhp"]), int(e["shield"]), CAT["atk"], 150.0)
+	pips.setup(int(e["hp"]), int(e["maxhp"]), int(e["shield"]), CAT["atk"], 130.0)
 	pips.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	br.add_child(pips)
 	lbl(br, "%d/%d" % [e["hp"], e["maxhp"]], 13, C_MUTED)
@@ -803,7 +803,7 @@ func enemy_card(parent: Node, e: Dictionary, pickable: bool) -> void:
 	elif e["hp"] <= 0:
 		lbl(v, "쓰러짐", 14, C_MUTED)
 	var po = Portrait.new()
-	po.setup("enemy", str(e["key"]), str(e["name"]), CAT["atk"], 96.0 if e["boss"] else 84.0, bold, e["boss"])
+	po.setup("enemy", str(e["key"]), str(e["name"]), CAT["atk"], 92.0 if e["boss"] else 80.0, bold, e["boss"])
 	po.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(po)
 
@@ -813,7 +813,7 @@ func hero_card(parent: Node, h: Dictionary, pickable: bool) -> void:
 	var pp: Dictionary = h["p"]
 	var role: String = Data.hero_class(pp)["role"]
 	var po = Portrait.new()
-	po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 78.0, bold)
+	po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 72.0, bold)
 	po.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(po)
 	var v := vb(row, 4)
@@ -884,7 +884,7 @@ func hero_card(parent: Node, h: Dictionary, pickable: bool) -> void:
 		cur = int(h["face_idx"])
 	for i in 6:
 		var face: Dictionary = Data.hero_face(pp, i)
-		var m = make_die(grid, face, 34.0)
+		var m = make_die(grid, face, 32.0)
 		m.selected = i == cur and h["hp"] > 0
 		m.dim = h["hp"] <= 0
 		m.mouse_entered.connect(_info_show.bind(Data.face_desc(face)))
