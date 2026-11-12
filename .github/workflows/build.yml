@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -69,6 +69,16 @@ jobs:
         with:
           name: dice-expedition-web
           path: build/web
+
+      - name: Publish web build to web-build branch
+        run: |
+          cd build/web
+          git init -q -b web-build
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "web build ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" web-build
 
       - name: Upload Pages artifact
         if: ${{ !github.event.repository.private }}
