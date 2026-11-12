@@ -73,6 +73,15 @@ func _ready() -> void:
 	show_title()
 
 
+func _unhandled_key_input(event: InputEvent) -> void:
+	# test shortcut: F9 starts a fight with a random party, F10 a boss fight
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_F9, KEY_F10]:
+		show_party_select()
+		_random_party()
+		_start_run()
+		start_fight("boss" if event.keycode == KEY_F10 else "fight")
+
+
 # =============== theme & widget helpers ===============
 
 func sb(bg: Color, border: Color, radius := 8, bw := 1, pad := 10) -> StyleBoxFlat:
@@ -374,22 +383,21 @@ func show_party_select() -> void:
 func _draw_party_select() -> void:
 	clear_screen()
 	top_bar()
+	var head := hb(root, 12)
+	lbl(head, "원정대 꾸리기", 24, C_BRASS, true)
+	lbl(head, "역할마다 영웅 한 명씩 선택. 아래 칸은 그 영웅 주사위의 여섯 면.", 15, C_MUTED, false, true)
+	btn(head, "무작위로 채우기", _random_party)
+	btn(head, "출발", _start_run, true, party_choice.size() < Data.ROLES.size())
 	var area := scroll_area(root)
-	lbl(area, "원정대 꾸리기", 26, C_BRASS, true)
-	lbl(area, "역할마다 영웅 한 명씩 선택. 아래 칸은 그 영웅 주사위의 여섯 면 (마우스를 올리면 설명).", 16, C_MUTED, false, true)
 	for role in Data.ROLES:
-		lbl(area, role["name"], 15, C_MUTED, true)
 		var row := hb(area, 10)
 		for k in role["opts"]:
 			var cls: Dictionary = Data.classes[k]
 			var on: bool = party_choice.get(role["key"], "") == k
 			var col := vb(row, 4)
 			col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			choice(col, "%s  (체력 %d)" % [cls["name"], cls["hp"]], cls["desc"] + _spell_note(cls), _pick_class.bind(role["key"], k), false, on)
+			choice(col, "%s · %s  (체력 %d)" % [role["name"], cls["name"], cls["hp"]], cls["desc"] + _spell_note(cls), _pick_class.bind(role["key"], k), false, on)
 			face_row(col, Data.make_hero(k))
-	var act := hb(area, 10)
-	btn(act, "무작위로 채우기", _random_party)
-	btn(act, "출발", _start_run, true, party_choice.size() < Data.ROLES.size())
 
 
 func _spell_note(cls: Dictionary) -> String:
