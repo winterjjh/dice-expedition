@@ -40,6 +40,8 @@ var enemy_cards := {}
 var hero_cards := {}
 var message := ""
 var links: Control
+var backdrop: TextureRect
+var backdrop_dim: ColorRect
 var info_lbl: Label = null
 var info_default := ""
 
@@ -54,6 +56,17 @@ func _ready() -> void:
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
+	backdrop = TextureRect.new()
+	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	backdrop.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	backdrop.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(backdrop)
+	backdrop_dim = ColorRect.new()
+	backdrop_dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	backdrop_dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	backdrop_dim.color = Color(0, 0, 0, 0)
+	add_child(backdrop_dim)
 	links = LinkLayer.new()
 	links.set_anchors_preset(Control.PRESET_FULL_RECT)
 	links.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -117,8 +130,33 @@ func _make_theme() -> Theme:
 	return th
 
 
+func set_backdrop(key: String, dim := 0.55) -> void:
+	var path := "res://art/bg/%s.jpg" % key
+	if key != "" and ResourceLoader.exists(path):
+		backdrop.texture = load(path)
+		backdrop_dim.color = Color(0.03, 0.07, 0.06, dim)
+	else:
+		backdrop.texture = null
+		backdrop_dim.color = Color(0, 0, 0, 0)
+
+
+func ui_icon(parent: Node, key: String, px: float) -> void:
+	var path := "res://art/ui/%s.png" % key
+	if not ResourceLoader.exists(path):
+		return
+	var t := TextureRect.new()
+	t.texture = load(path)
+	t.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	t.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	t.custom_minimum_size = Vector2(px, px)
+	t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(t)
+
+
 func clear_screen() -> void:
 	close_overlay()
+	set_backdrop("")
 	enemy_cards.clear()
 	hero_cards.clear()
 	info_lbl = null
@@ -278,7 +316,9 @@ func top_bar() -> void:
 	spacer(h)
 	if Game.run != null:
 		lbl(h, "%d막 · %d층" % [int(Game.run["act"]) + 1, int(Game.run["floors"])], 17, C_TEXT)
-		lbl(h, "골드 %d" % int(Game.run["gold"]), 17, C_BRASS, true)
+		var gh := hb(h, 4)
+		ui_icon(gh, "coin", 24.0)
+		lbl(gh, "골드 %d" % int(Game.run["gold"]), 17, C_BRASS, true)
 		btn(h, "원정대 보기", show_party_overlay)
 
 
@@ -324,17 +364,21 @@ func show_title() -> void:
 	Game.run = null
 	combat = null
 	clear_screen()
+	set_backdrop("title", 0.5)
 	var c := CenterContainer.new()
 	c.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(c)
 	var v := vb(c, 18)
 	var dice := hb(v, 12, true)
-	for f in [{"k": "mark", "n": 2}, {"k": "steal", "n": 0}, {"k": "heat", "n": 2}, {"k": "seed", "n": 2}]:
+	for f in [{"k": "taunt", "n": 1}, {"k": "steal", "n": 0}, {"k": "heat", "n": 2}, {"k": "seed", "n": 2}]:
 		die_widget(dice, f, false, false, false, Callable())
 	var t := lbl(v, "주사위 원정대", 54, C_BRASS, true)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var s := lbl(v, "영웅 넷이 저마다 다른 직업 주사위를 굴려 싸우는 원정.\n세 개의 막을 지나 운명의 도박사를 쓰러뜨리면 승리.", 18, C_MUTED)
+	var s := lbl(v, "영웅 넷이 저마다 다른 직업 주사위를 굴려 싸우는 원정.\n세 개의 막을 지나 운명의 도박사를 쓰러뜨리면 승리.", 18, C_TEXT)
 	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	for l in [t, s]:
+		l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+		l.add_theme_constant_override("outline_size", 8)
 	var row := hb(v, 12, true)
 	var saved := Game.peek_saved_label()
 	if saved != "":
@@ -541,6 +585,7 @@ func target_mode() -> String:
 func refresh() -> void:
 	var c = combat
 	clear_screen()
+	set_backdrop("act%d" % (int(Game.run["act"]) + 1), 0.5)
 	top_bar()
 	var mode := target_mode()
 	var body := hb(root, 14)
@@ -563,6 +608,8 @@ func refresh() -> void:
 	logl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	logl.custom_minimum_size = Vector2(0, 52)
 	logl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	logl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	logl.add_theme_constant_override("outline_size", 5)
 	message = ""
 	var tray := hb(mid, 12, true)
 	for h in c.heroes:
@@ -582,8 +629,9 @@ func refresh() -> void:
 	mrow.add_theme_constant_override("h_separation", 8)
 	mrow.add_theme_constant_override("v_separation", 6)
 	mid.add_child(mrow)
+	ui_icon(mrow, "mana", 30.0)
 	var ml := lbl(mrow, "마나 %d" % c.mana, 16, CAT["mana"], true)
-	ml.add_theme_stylebox_override("normal", sb(Color(0, 0, 0, 0), CAT["mana"], 14, 1, 10))
+	ml.add_theme_stylebox_override("normal", sb(Color(0.05, 0.03, 0.1, 0.6), CAT["mana"], 14, 1, 10))
 	for s in c.spells_available():
 		var spd: Dictionary = Data.spells[s]
 		var off: bool = c.phase != "use" or c.mana < int(spd["cost"]) or busy
@@ -639,6 +687,16 @@ func _update_links() -> void:
 	links.set_links(out)
 
 
+func _hero_art_key(cls: String) -> String:
+	# promoted classes borrow the base class picture until they get their own
+	if ResourceLoader.exists("res://art/hero/%s.png" % cls):
+		return cls
+	for k in Data.classes:
+		if cls in Data.classes[k]["promo"]:
+			return str(k)
+	return cls
+
+
 func tray_slot(parent: Node, h: Dictionary) -> void:
 	var v := vb(parent, 4)
 	v.custom_minimum_size = Vector2(TRAY_DIE, 0)
@@ -671,7 +729,7 @@ func _card_input(event: InputEvent, t: Dictionary) -> void:
 
 func _card(parent: Node, pickable: bool, faded: bool, t: Dictionary) -> HBoxContainer:
 	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", sb(C_LINE if pickable else C_PANEL, C_BRASS if pickable else C_LINE, 10, 3 if pickable else 1, 10))
+	p.add_theme_stylebox_override("panel", sb(C_LINE if pickable else Color(C_PANEL, 0.9), C_BRASS if pickable else C_LINE, 10, 3 if pickable else 1, 10))
 	if faded:
 		p.modulate = Color(1, 1, 1, 0.35)
 	if pickable:
@@ -745,7 +803,7 @@ func enemy_card(parent: Node, e: Dictionary, pickable: bool) -> void:
 	elif e["hp"] <= 0:
 		lbl(v, "쓰러짐", 14, C_MUTED)
 	var po = Portrait.new()
-	po.setup("enemy", str(e["key"]), str(e["name"]), CAT["atk"], 64.0, bold, e["boss"])
+	po.setup("enemy", str(e["key"]), str(e["name"]), CAT["atk"], 96.0 if e["boss"] else 84.0, bold, e["boss"])
 	po.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(po)
 
@@ -755,7 +813,7 @@ func hero_card(parent: Node, h: Dictionary, pickable: bool) -> void:
 	var pp: Dictionary = h["p"]
 	var role: String = Data.hero_class(pp)["role"]
 	var po = Portrait.new()
-	po.setup("hero", str(pp["cls"]), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 64.0, bold)
+	po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 78.0, bold)
 	po.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(po)
 	var v := vb(row, 4)

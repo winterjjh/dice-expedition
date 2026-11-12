@@ -61,3 +61,8 @@ godot --headless --path . res://tests/ui_smoke.tscn
 
 - 글꼴: IBM Plex Sans KR, SIL Open Font License 1.1 (`fonts/OFL.txt`)
 - 그 밖의 그래픽은 모두 코드로 그린 도형과 글자
+
+## 그림 넣는 방법
+
+- `art/hero/<직업 키>.png`, `art/enemy/<적 키>.png`, `art/skill/<스킬 키>.png`, `art/ui/<이름>.png`, `art/bg/<이름>.jpg`에 파일이 있으면 자동으로 사용, 없으면 코드로 그린 그림으로 대체
+- 여러 개가 모인 원본 그림은 `python3 tools/slice_art.py <원본 폴더> .`로 낱개 분할

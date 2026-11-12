@@ -24,15 +24,23 @@ func setup(folder: String, key: String, name_text: String, color: Color, px: flo
 
 func _draw() -> void:
 	var s: float = minf(size.x, size.y)
+	var o := (size - Vector2(s, s)) * 0.5
+	if tex != null and tex.has_alpha():
+		# cut-out sprite: no tile behind it
+		draw_texture_rect(tex, Rect2(o, Vector2(s, s)), false)
+		return
 	var box := StyleBoxFlat.new()
 	box.bg_color = col.darkened(0.62)
 	box.border_color = Color("#caa24e") if boss else col.darkened(0.15)
-	box.set_border_width_all(3 if boss else 2)
-	box.set_corner_radius_all(int(s * 0.14))
+	box.set_border_width_all(3)
+	box.set_corner_radius_all(6)
 	box.anti_aliasing = true
-	draw_style_box(box, Rect2(0, 0, s, s))
 	if tex != null:
-		draw_texture_rect(tex, Rect2(4, 4, s - 8, s - 8), false)
-	elif font != null:
-		var fs: int = int(s * 0.5)
-		draw_string(font, Vector2(0, s * 0.5 + fs * 0.36), letter, HORIZONTAL_ALIGNMENT_CENTER, s, fs, col.lightened(0.25))
+		draw_texture_rect(tex, Rect2(o + Vector2(2, 2), Vector2(s - 4, s - 4)), false)
+		box.draw_center = false
+		draw_style_box(box, Rect2(o, Vector2(s, s)))
+	else:
+		draw_style_box(box, Rect2(o, Vector2(s, s)))
+		if font != null:
+			var fs: int = int(s * 0.5)
+			draw_string(font, o + Vector2(0, s * 0.5 + fs * 0.36), letter, HORIZONTAL_ALIGNMENT_CENTER, s, fs, col.lightened(0.25))
