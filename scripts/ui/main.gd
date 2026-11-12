@@ -290,7 +290,7 @@ func show_title() -> void:
 	root.add_child(c)
 	var v := vb(c, 18)
 	var dice := hb(v, 12, true)
-	for f in [{"k": "atk", "n": 3}, {"k": "steal", "n": 0}, {"k": "heat", "n": 2}, {"k": "seed", "n": 2}]:
+	for f in [{"k": "mark", "n": 2}, {"k": "steal", "n": 0}, {"k": "heat", "n": 2}, {"k": "seed", "n": 2}]:
 		die_widget(dice, f, false, false, false, Callable())
 	var t := lbl(v, "주사위 원정대", 54, C_BRASS, true)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
