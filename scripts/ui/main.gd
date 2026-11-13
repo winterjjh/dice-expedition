@@ -44,6 +44,9 @@ var backdrop: TextureRect
 var backdrop_dim: ColorRect
 var info_lbl: Label = null
 var info_default := ""
+var move_mode := false
+var move_sel := -1
+var cell_ui := {}
 
 
 func _ready() -> void:
@@ -159,6 +162,7 @@ func clear_screen() -> void:
 	set_backdrop("")
 	enemy_cards.clear()
 	hero_cards.clear()
+	cell_ui.clear()
 	info_lbl = null
 	if links != null:
 		links.set_links([])
@@ -544,6 +548,8 @@ func run_node(type: String) -> void:
 # =============== combat ===============
 
 func start_fight(kind: String, note := "") -> void:
+	move_mode = false
+	move_sel = -1
 	var enc: Dictionary = Data.encounters[int(Game.run["act"])]
 	var group: Array
 	if kind == "boss":
@@ -590,15 +596,10 @@ func refresh() -> void:
 	var mode := target_mode()
 	var body := hb(root, 14)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	# heroes on the left
-	var left := vb(body, 8)
-	left.custom_minimum_size = Vector2(360, 0)
-	left.alignment = BoxContainer.ALIGNMENT_CENTER
-	for h in c.heroes:
-		var pick: bool = (mode == "ally" and h["hp"] > 0) or (mode == "dead" and h["hp"] <= 0)
-		hero_card(left, h, pick)
+	body.alignment = BoxContainer.ALIGNMENT_CENTER
+	grid_panel(body, "hero", mode)
 	# dice tray in the middle
-	var mid := vb(body, 14)
+	var mid := vb(body, 12)
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.alignment = BoxContainer.ALIGNMENT_CENTER
 	var last := ""
@@ -611,19 +612,23 @@ func refresh() -> void:
 	logl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	logl.add_theme_constant_override("outline_size", 5)
 	message = ""
-	var tray := hb(mid, 12, true)
+	var tray := hb(mid, 10, true)
 	for h in c.heroes:
 		tray_slot(tray, h)
-	var ar := hb(mid, 12, true)
+	var ar := hb(mid, 10, true)
+	var mv := btn(ar, "이동 취소" if move_mode else ("이동 (%d)" % (0 if c.hero_moved else 1)), _toggle_move, false, busy or c.hero_moved)
+	mv.tooltip_text = "턴마다 한 번, 영웅 하나를 옆 칸으로 옮김. 아군이 있는 칸이면 자리 바꿈."
 	if c.phase == "roll":
 		btn(ar, "다시 굴리기 (%d)" % c.rerolls, on_reroll, false, busy or not c.can_reroll())
 		btn(ar, "굴림 확정", on_confirm, true, busy)
-		info_default = "굴림 단계 · 마음에 드는 주사위를 눌러 고정하고 나머지를 다시 굴림."
+		info_default = "굴림 단계 · 마음에 드는 주사위를 눌러 고정하고 나머지를 다시 굴림. 붉은 칸은 적이 노리는 자리."
 	else:
 		if sel >= 0 or armed_spell != "":
 			btn(ar, "선택 취소", _cancel_sel)
 		btn(ar, "턴 종료", on_end_turn, true, busy)
-		info_default = "사용 단계 · 주사위를 누른 뒤 빛나는 대상을 누르면 발동."
+		info_default = "사용 단계 · 주사위를 누른 뒤 빛나는 칸을 누르면 발동. [근접] 스킬은 각 가로줄 맨 앞의 적만 가능."
+	if move_mode:
+		info_default = "이동 · 옮길 영웅을 누른 뒤 바로 옆 칸을 누름. 아군이 있는 칸이면 자리 바꿈."
 	var mrow := HFlowContainer.new()
 	mrow.alignment = FlowContainer.ALIGNMENT_CENTER
 	mrow.add_theme_constant_override("h_separation", 8)
@@ -643,21 +648,283 @@ func refresh() -> void:
 		if armed_spell == s:
 			b.add_theme_stylebox_override("normal", sb(CAT["mana"], C_IVORY))
 			b.add_theme_color_override("font_color", Color("#1a1226"))
+	grid_panel(body, "enemy", mode)
+	# hero details and the description box along the bottom
+	var foot := hb(root, 8)
+	for h in c.heroes:
+		hero_strip(foot, h)
 	var ip := PanelContainer.new()
-	ip.add_theme_stylebox_override("panel", sb(C_PANEL2, C_LINE, 8, 1, 12))
-	ip.custom_minimum_size = Vector2(0, 76)
-	mid.add_child(ip)
+	ip.add_theme_stylebox_override("panel", sb(Color(C_PANEL2, 0.92), C_LINE, 8, 1, 12))
+	ip.custom_minimum_size = Vector2(0, 64)
+	root.add_child(ip)
 	info_lbl = lbl(ip, info_default, 15, C_MUTED, false, true)
 	info_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	info_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	# enemies on the right
-	var right := vb(body, 8)
-	right.custom_minimum_size = Vector2(350, 0)
-	right.alignment = BoxContainer.ALIGNMENT_CENTER
-	for e in c.enemies:
-		enemy_card(right, e, mode == "enemy" and e["hp"] > 0)
 	_play_events.call_deferred()
 	_update_links()
+
+
+func _toggle_move() -> void:
+	move_mode = not move_mode
+	move_sel = -1
+	sel = -1
+	armed_spell = ""
+	refresh()
+
+
+func grid_panel(parent: Node, side: String, mode: String) -> void:
+	var c = combat
+	var wrap := vb(parent, 4)
+	wrap.alignment = BoxContainer.ALIGNMENT_CENTER
+	var head := lbl(wrap, "뒷줄 ← 원정대 → 앞줄" if side == "hero" else "앞줄 ← 적 → 뒷줄", 12, C_MUTED, true)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 5)
+	grid.add_theme_constant_override("v_separation", 5)
+	wrap.add_child(grid)
+	# cells the enemies are aiming at
+	var threat := {}
+	if side == "hero":
+		for e in c.live_enemies():
+			for cell in c.enemy_threat_cells(e):
+				threat[Vector2i(int(cell[0]), int(cell[1]))] = true
+	for r in 3:
+		for x in 3:
+			var col: int = (2 - x) if side == "hero" else x
+			grid_cell(grid, side, col, r, mode, threat.has(Vector2i(col, r)))
+
+
+func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threatened: bool) -> void:
+	var cb = combat
+	var units: Array = cb.heroes if side == "hero" else cb.enemies
+	var u: Dictionary = cb.unit_at(units, c, r)
+	var dead: Dictionary = {}
+	if u.is_empty() and side == "hero":
+		dead = cb.unit_at(units, c, r, true)
+	var pick := false
+	if move_mode and side == "hero":
+		if move_sel < 0:
+			pick = not u.is_empty()
+		else:
+			pick = cb.can_move(move_sel, c, r)
+	elif not u.is_empty():
+		if side == "enemy" and mode == "enemy":
+			pick = true
+			if sel >= 0 and armed_spell == "":
+				pick = cb.can_use(sel, u)
+		elif side == "hero" and mode == "ally":
+			pick = true
+	elif not dead.is_empty() and mode == "dead":
+		pick = true
+	var chosen: bool = move_mode and side == "hero" and not u.is_empty() and int(u["i"]) == move_sel
+	var bg := Color(C_PANEL, 0.78)
+	var border := Color(C_LINE, 0.9)
+	var bw := 1
+	if threatened:
+		bg = Color(0.35, 0.1, 0.08, 0.6)
+		border = CAT["hurt"]
+		bw = 2
+	if pick:
+		border = C_BRASS
+		bw = 3
+		bg = Color(C_LINE, 0.9)
+	if chosen:
+		border = Color.WHITE
+		bw = 3
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", sb(bg, border, 8, bw, 5))
+	p.custom_minimum_size = Vector2(118, 118)
+	parent.add_child(p)
+	cell_ui["%s%d%d" % [side, c, r]] = p
+	if pick or (move_mode and side == "hero"):
+		p.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		p.gui_input.connect(_cell_input.bind(side, c, r))
+	if pick:
+		var tw := p.create_tween().set_loops()
+		tw.tween_property(p, "self_modulate", Color(1.3, 1.25, 1.0), 0.5)
+		tw.tween_property(p, "self_modulate", Color.WHITE, 0.5)
+	var who: Dictionary = u if not u.is_empty() else dead
+	if who.is_empty():
+		return
+	if side == "hero":
+		hero_cards[int(who["i"])] = p
+	else:
+		enemy_cards[int(who["i"])] = p
+	var v := vb(p, 2)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	var desc := ""
+	if side == "hero":
+		var pp: Dictionary = who["p"]
+		var role: String = Data.hero_class(pp)["role"]
+		var top := hb(v, 4, true)
+		top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		lbl(top, Data.hero_class(pp)["name"], 12, C_TEXT, true)
+		var inc: int = cb.incoming_for(who) if who["hp"] > 0 else 0
+		if inc > 0:
+			var danger: bool = inc >= int(who["hp"]) + int(who["shield"])
+			var il := lbl(top, "-%d" % inc, 12, Color("#1b0d0a") if danger else CAT["hurt"], true)
+			il.add_theme_stylebox_override("normal", sb(CAT["hurt"] if danger else Color(0, 0, 0, 0.4), CAT["hurt"], 6, 1, 4))
+		var po = Portrait.new()
+		po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 62.0, bold)
+		po.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		v.add_child(po)
+		if who["hp"] <= 0:
+			p.modulate = Color(1, 1, 1, 0.4)
+		desc = "%s · 체력 %d/%d" % [Data.hero_class(pp)["name"], who["hp"], who["maxhp"]]
+		var hs := _hero_status(who)
+		if hs != "":
+			desc += " · " + hs
+	else:
+		var top2 := hb(v, 3, true)
+		top2.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var it := {"c": "blank", "t": ""}
+		if who["face"] != null:
+			var f: Dictionary = who["face"]
+			var k: String = f["k"]
+			var val: int = cb.enemy_value(who) if k in ["atk", "all"] else int(f["n"])
+			var d = DieFace.new()
+			d.setup(k, 0, "", CAT[ECAT.get(k, "blank")], 26.0, bold)
+			d.dim = who["stunned"]
+			d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			top2.add_child(d)
+			it = cb.enemy_intent(who)
+			if val > 0 and not who["stunned"]:
+				lbl(top2, str(val), 15, CAT[ECAT.get(k, "blank")], true)
+		var nl := lbl(top2, str(who["name"]), 11, C_BRASS if who["boss"] else C_TEXT, true)
+		nl.clip_text = true
+		nl.custom_minimum_size = Vector2(52, 0)
+		var po2 = Portrait.new()
+		po2.setup("enemy", str(who["key"]), str(who["name"]), CAT["atk"], 58.0, bold, who["boss"])
+		po2.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		v.add_child(po2)
+		desc = "%s%s · 체력 %d/%d · %s" % [who["name"], " (원거리)" if who["ranged"] else "", who["hp"], who["maxhp"], it["t"]]
+		var es := _enemy_status(who)
+		if es != "":
+			desc += " · " + es
+		var fl := []
+		for f2 in who["faces"]:
+			var w: String = str(Data.enemy_faces[f2["k"]]["w"])
+			fl.append(w + (str(f2["n"]) if int(f2["n"]) > 0 else ""))
+		desc += "\n주사위: " + ", ".join(PackedStringArray(fl))
+	var pips = HpPips.new()
+	pips.setup(int(who["hp"]), int(who["maxhp"]), int(who["shield"]), CAT["heal"] if side == "hero" else CAT["atk"], 100.0, true)
+	pips.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(pips)
+	p.mouse_entered.connect(_info_show.bind(desc))
+	p.mouse_exited.connect(_info_show.bind(""))
+
+
+func _cell_input(event: InputEvent, side: String, c: int, r: int) -> void:
+	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
+		return
+	if busy or combat == null:
+		return
+	var units: Array = combat.heroes if side == "hero" else combat.enemies
+	var u: Dictionary = combat.unit_at(units, c, r)
+	if move_mode and side == "hero":
+		if move_sel >= 0 and combat.can_move(move_sel, c, r):
+			combat.move_hero(move_sel, c, r)
+			move_mode = false
+			move_sel = -1
+		elif not u.is_empty():
+			move_sel = int(u["i"])
+		refresh()
+		return
+	if u.is_empty():
+		u = combat.unit_at(units, c, r, true)
+	if not u.is_empty():
+		pick_target(u)
+
+
+func _hero_status(h: Dictionary) -> String:
+	var st := []
+	if h["hp"] <= 0:
+		return "쓰러짐"
+	if h["shield"] > 0:
+		st.append("방어 %d" % h["shield"])
+	if h["poison"] > 0:
+		st.append("독 %d" % h["poison"])
+	if h["streak"] > 0:
+		st.append("기세 %d" % h["streak"])
+	if h["aimed"]:
+		st.append("조준 완료 ×3")
+	if h["aim_pending"]:
+		st.append("조준 중")
+	if h["heat"] > 0:
+		st.append("열 %d/5" % h["heat"])
+	if h["seed"] > 0:
+		st.append("씨앗 %d" % h["seed"])
+	if h["thorns"] > 0:
+		st.append("가시 %d" % h["thorns"])
+	if h["dodge"]:
+		st.append("연막")
+	if h["guard"]:
+		st.append("수호 기도")
+	if h["ward"]:
+		st.append("정화")
+	if h["keep_shield"]:
+		st.append("얼음 갑옷")
+	if h["link"] >= 0:
+		st.append("연결: " + combat.hero_label(combat.heroes[h["link"]]))
+	if h["taunt"]:
+		st.append("대신 맞는 중")
+	if h["double"]:
+		st.append("효과 두 배")
+	if h["hexed"]:
+		st.append("저주")
+	return " · ".join(PackedStringArray(st))
+
+
+func _enemy_status(e: Dictionary) -> String:
+	var st := []
+	if e["shield"] > 0:
+		st.append("방어 %d" % e["shield"])
+	if e["poison"] > 0:
+		st.append("독 %d" % e["poison"])
+	if e["weak"] > 0:
+		st.append("약화 %d" % e["weak"])
+	if e["frozen"]:
+		st.append("얼어붙음")
+	if e["stunned"]:
+		st.append("행동 불가")
+	if e["mark"] > 0:
+		st.append("표식 +%d" % e["mark"])
+	return " · ".join(PackedStringArray(st))
+
+
+func hero_strip(parent: Node, h: Dictionary) -> void:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", sb(Color(C_PANEL, 0.9), C_LINE, 8, 1, 8))
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if h["hp"] <= 0:
+		p.modulate = Color(1, 1, 1, 0.4)
+	parent.add_child(p)
+	var row := hb(p, 8)
+	var v := vb(row, 2)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var pp: Dictionary = h["p"]
+	var role: String = Data.hero_class(pp)["role"]
+	lbl(v, Data.hero_class(pp)["name"], 15, ROLE_COL[role], true)
+	var st := _hero_status(h)
+	lbl(v, st if st != "" else "체력 %d/%d" % [h["hp"], h["maxhp"]], 12, CAT["def"] if st != "" else C_MUTED, false, true)
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 3)
+	grid.add_theme_constant_override("v_separation", 3)
+	grid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(grid)
+	var cur := -1
+	if h["face"] != null:
+		cur = int(h["face_idx"])
+	for i in 6:
+		var face: Dictionary = Data.hero_face(pp, i)
+		var m = make_die(grid, face, 32.0)
+		m.selected = i == cur and h["hp"] > 0
+		m.dim = h["hp"] <= 0
+		m.mouse_entered.connect(_info_show.bind(Data.face_desc(face)))
+		m.mouse_exited.connect(_info_show.bind(""))
 
 
 func _info_show(text: String) -> void:
@@ -672,18 +939,26 @@ func _update_links() -> void:
 		return
 	var out := []
 	for e in combat.live_enemies():
-		if e["stunned"] or e["face"] == null or int(e["target"]) < 0:
-			continue
-		var k: String = e["face"]["k"]
-		if not k in ["atk", "poison", "hex"]:
+		if e["stunned"] or e["face"] == null or str(e["tmode"]) == "":
 			continue
 		var ec = enemy_cards.get(int(e["i"]))
-		var hc = hero_cards.get(int(e["target"]))
-		if ec == null or hc == null or not is_instance_valid(ec) or not is_instance_valid(hc):
+		if ec == null or not is_instance_valid(ec):
 			continue
 		var er: Rect2 = ec.get_global_rect()
-		var hr: Rect2 = hc.get_global_rect()
-		out.append({"a": Vector2(er.position.x, er.get_center().y), "b": Vector2(hr.end.x, hr.get_center().y), "col": Color(CAT[ECAT[k]], 0.55)})
+		var k: String = e["face"]["k"]
+		var cells: Array = combat.enemy_threat_cells(e)
+		if str(e["tmode"]) == "row":
+			var f: Dictionary = combat.front_of_row(combat.heroes, int(e["tr"]))
+			cells = [[0, int(e["tr"])]] if f.is_empty() else [[int(f["c"]), int(f["r"])]]
+		if int(e["forced"]) >= 0 and str(e["tmode"]) != "cross":
+			var fh: Dictionary = combat.heroes[int(e["forced"])]
+			cells = [[int(fh["c"]), int(fh["r"])]]
+		for cell in cells:
+			var hc = cell_ui.get("hero%d%d" % [int(cell[0]), int(cell[1])])
+			if hc == null or not is_instance_valid(hc):
+				continue
+			var hr: Rect2 = hc.get_global_rect()
+			out.append({"a": Vector2(er.position.x, er.get_center().y), "b": hr.get_center(), "col": Color(CAT[ECAT[k]], 0.5)})
 	links.set_links(out)
 
 
@@ -725,170 +1000,6 @@ func _cancel_sel() -> void:
 func _card_input(event: InputEvent, t: Dictionary) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		pick_target(t)
-
-
-func _card(parent: Node, pickable: bool, faded: bool, t: Dictionary) -> HBoxContainer:
-	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", sb(C_LINE if pickable else Color(C_PANEL, 0.9), C_BRASS if pickable else C_LINE, 10, 3 if pickable else 1, 10))
-	if faded:
-		p.modulate = Color(1, 1, 1, 0.35)
-	if pickable:
-		p.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		p.gui_input.connect(_card_input.bind(t))
-		var tw := p.create_tween().set_loops()
-		tw.tween_property(p, "self_modulate", Color(1.25, 1.2, 1.0), 0.5)
-		tw.tween_property(p, "self_modulate", Color.WHITE, 0.5)
-	parent.add_child(p)
-	if t.has("key"):
-		enemy_cards[int(t["i"])] = p
-	else:
-		hero_cards[int(t["i"])] = p
-	var h := hb(p, 10)
-	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return h
-
-
-func enemy_card(parent: Node, e: Dictionary, pickable: bool) -> void:
-	var row := _card(parent, pickable, e["hp"] <= 0, e)
-	# what this enemy rolled
-	if e["hp"] > 0 and e["face"] != null:
-		var f: Dictionary = e["face"]
-		var k: String = f["k"]
-		var val: int = combat.enemy_value(e) if k in ["atk", "all"] else int(f["n"])
-		var d = DieFace.new()
-		d.setup(k, val, str(Data.enemy_faces[k]["w"]), CAT[ECAT.get(k, "blank")], 60.0, bold)
-		d.show_label = false
-		d.dim = e["stunned"]
-		d.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		d.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(d)
-	var v := vb(row, 4)
-	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var top := hb(v, 6)
-	lbl(top, e["name"], 17, C_TEXT, true)
-	if e["boss"]:
-		lbl(top, "우두머리" + (" · 2단계" if e["phased"] else ""), 12, C_BRASS, true)
-	var br := hb(v, 6)
-	var pips = HpPips.new()
-	pips.setup(int(e["hp"]), int(e["maxhp"]), int(e["shield"]), CAT["atk"], 130.0)
-	pips.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	br.add_child(pips)
-	lbl(br, "%d/%d" % [e["hp"], e["maxhp"]], 13, C_MUTED)
-	if e["hp"] > 0 and e["face"] != null:
-		var it: Dictionary = combat.enemy_intent(e)
-		lbl(v, it["t"], 15, CAT[it["c"]], true, true)
-		var st := []
-		if e["shield"] > 0:
-			st.append("방어 %d" % e["shield"])
-		if e["poison"] > 0:
-			st.append("독 %d" % e["poison"])
-		if e["weak"] > 0:
-			st.append("약화 %d" % e["weak"])
-		if e["frozen"]:
-			st.append("얼어붙음")
-		if e["mark"] > 0:
-			st.append("표식 (받는 피해 +%d)" % e["mark"])
-		if st.size() > 0:
-			lbl(v, " · ".join(PackedStringArray(st)), 13, CAT["def"], false, true)
-		var fr := hb(v, 3)
-		fr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		for f2 in e["faces"]:
-			var k2: String = f2["k"]
-			var m = DieFace.new()
-			m.setup(k2, int(f2["n"]), "", CAT[ECAT.get(k2, "blank")], 22.0, bold)
-			var info: Dictionary = Data.enemy_faces[k2]
-			m.tooltip_text = str(info["w"]) + ((" %d" % f2["n"]) if int(f2["n"]) > 0 else "") + ((" · " + str(info["d"])) if info.has("d") else "")
-			fr.add_child(m)
-	elif e["hp"] <= 0:
-		lbl(v, "쓰러짐", 14, C_MUTED)
-	var po = Portrait.new()
-	po.setup("enemy", str(e["key"]), str(e["name"]), CAT["atk"], 92.0 if e["boss"] else 80.0, bold, e["boss"])
-	po.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(po)
-
-
-func hero_card(parent: Node, h: Dictionary, pickable: bool) -> void:
-	var row := _card(parent, pickable, h["hp"] <= 0 and not pickable, h)
-	var pp: Dictionary = h["p"]
-	var role: String = Data.hero_class(pp)["role"]
-	var po = Portrait.new()
-	po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 72.0, bold)
-	po.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(po)
-	var v := vb(row, 4)
-	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var top := hb(v, 6)
-	lbl(top, Data.hero_class(pp)["name"], 17, C_TEXT, true)
-	var inc := 0
-	if h["hp"] > 0:
-		inc = combat.incoming_for(h)
-	if inc > 0:
-		var danger: bool = inc >= int(h["hp"]) + int(h["shield"])
-		var il := lbl(top, "피해 %d" % inc, 13, Color("#1b0d0a") if danger else CAT["hurt"], true)
-		il.add_theme_stylebox_override("normal", sb(CAT["hurt"] if danger else Color(0, 0, 0, 0), CAT["hurt"], 8, 1, 6))
-	var br := hb(v, 6)
-	var pips = HpPips.new()
-	pips.setup(int(h["hp"]), int(h["maxhp"]), int(h["shield"]), CAT["heal"], 150.0)
-	pips.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	br.add_child(pips)
-	lbl(br, "%d/%d" % [h["hp"], h["maxhp"]], 13, C_MUTED)
-	var st := []
-	if h["shield"] > 0:
-		st.append("방어 %d" % h["shield"])
-	if h["poison"] > 0:
-		st.append("독 %d" % h["poison"])
-	if h["streak"] > 0:
-		st.append("기세 %d" % h["streak"])
-	if h["aimed"]:
-		st.append("조준 완료 ×3")
-	if h["aim_pending"]:
-		st.append("조준 중")
-	if h["heat"] > 0:
-		st.append("열 %d/5" % h["heat"])
-	if h["seed"] > 0:
-		st.append("씨앗 %d" % h["seed"])
-	if h["thorns"] > 0:
-		st.append("가시 %d" % h["thorns"])
-	if h["dodge"]:
-		st.append("연막")
-	if h["guard"]:
-		st.append("수호 기도")
-	if h["ward"]:
-		st.append("정화")
-	if h["keep_shield"]:
-		st.append("얼음 갑옷")
-	if h["link"] >= 0:
-		st.append("연결: " + combat.hero_label(combat.heroes[h["link"]]))
-	if h["taunt"]:
-		st.append("대신 맞는 중")
-	if h["double"]:
-		st.append("효과 두 배")
-	if h["hexed"]:
-		st.append("저주")
-	if h["hp"] <= 0:
-		st = ["쓰러짐"]
-	if st.size() > 0:
-		lbl(v, " · ".join(PackedStringArray(st)), 13, CAT["def"], false, true)
-	# the six faces of this hero's die
-	var grid := GridContainer.new()
-	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 3)
-	grid.add_theme_constant_override("v_separation", 3)
-	grid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(grid)
-	var cur := -1
-	if h["face"] != null:
-		cur = int(h["face_idx"])
-	for i in 6:
-		var face: Dictionary = Data.hero_face(pp, i)
-		var m = make_die(grid, face, 32.0)
-		m.selected = i == cur and h["hp"] > 0
-		m.dim = h["hp"] <= 0
-		m.mouse_entered.connect(_info_show.bind(Data.face_desc(face)))
-		m.mouse_exited.connect(_info_show.bind(""))
 
 
 func die_widget(parent: Node, face: Dictionary, locked: bool, selected: bool, used: bool, cb: Callable, fresh := false) -> Control:
@@ -942,6 +1053,8 @@ func _play_events() -> void:
 func on_die(i: int) -> void:
 	if busy or combat == null:
 		return
+	move_mode = false
+	move_sel = -1
 	var c = combat
 	if c.phase == "roll":
 		c.toggle_lock(i)

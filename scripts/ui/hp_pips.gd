@@ -13,17 +13,21 @@ var bar := false
 var bar_w := 180.0
 
 
-func setup(value: int, maxv: int, guard: int, color: Color, width: float) -> void:
+func setup(value: int, maxv: int, guard: int, color: Color, width: float, compact := false) -> void:
 	hp = value
 	maxhp = maxi(1, maxv)
 	shield = guard
 	col = color
 	bar_w = width
-	bar = maxhp > 30
+	bar = maxhp > (20 if compact else 30)
 	if bar:
 		custom_minimum_size = Vector2(width, 14)
 	else:
-		if maxhp > 20:
+		if compact:
+			pip = 8.0
+			gap = 1.0
+			per_row = 10
+		elif maxhp > 20:
 			pip = 9.0
 			per_row = 15
 		elif maxhp > 10:

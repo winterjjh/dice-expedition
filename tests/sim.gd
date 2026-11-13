@@ -187,7 +187,10 @@ func pick_target(c, h: Dictionary):
 	var k: String = h["face"]["k"]
 	var t: String = Data.face_target(k)
 	if t == "enemy":
-		var live: Array = c.live_enemies()
+		var live := []
+		for e in c.live_enemies():
+			if not c.face_melee(k) or c.exposed(e, c.enemies):
+				live.append(e)
 		if live.is_empty():
 			return null
 		if k == "execute":
