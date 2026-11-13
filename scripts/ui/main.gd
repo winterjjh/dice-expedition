@@ -687,15 +687,19 @@ func grid_panel(parent: Node, side: String, mode: String) -> void:
 	var threat := {}
 	if side == "hero":
 		for e in c.live_enemies():
+			var strong: bool = str(e["tmode"]) != "row"
 			for cell in c.enemy_threat_cells(e):
-				threat[Vector2i(int(cell[0]), int(cell[1]))] = true
+				var key := Vector2i(int(cell[0]), int(cell[1]))
+				threat[key] = maxi(int(threat.get(key, 0)), 2 if strong else 1)
+			for v in c.enemy_victims(e):
+				threat[Vector2i(int(v["c"]), int(v["r"]))] = 2
 	for r in 3:
 		for x in 3:
 			var col: int = (2 - x) if side == "hero" else x
-			grid_cell(grid, side, col, r, mode, threat.has(Vector2i(col, r)))
+			grid_cell(grid, side, col, r, mode, int(threat.get(Vector2i(col, r), 0)))
 
 
-func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threatened: bool) -> void:
+func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat: int) -> void:
 	var cb = combat
 	var units: Array = cb.heroes if side == "hero" else cb.enemies
 	var u: Dictionary = cb.unit_at(units, c, r)
@@ -721,10 +725,12 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threate
 	var bg := Color(C_PANEL, 0.78)
 	var border := Color(C_LINE, 0.9)
 	var bw := 1
-	if threatened:
-		bg = Color(0.35, 0.1, 0.08, 0.6)
+	if threat == 2:
+		bg = Color(0.38, 0.1, 0.08, 0.62)
 		border = CAT["hurt"]
 		bw = 2
+	elif threat == 1:
+		border = Color(CAT["hurt"], 0.55)
 	if pick:
 		border = C_BRASS
 		bw = 3
@@ -734,7 +740,7 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threate
 		bw = 3
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", sb(bg, border, 8, bw, 5))
-	p.custom_minimum_size = Vector2(118, 118)
+	p.custom_minimum_size = Vector2(126, 126)
 	parent.add_child(p)
 	cell_ui["%s%d%d" % [side, c, r]] = p
 	if pick or (move_mode and side == "hero"):
@@ -767,7 +773,7 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threate
 			var il := lbl(top, "-%d" % inc, 12, Color("#1b0d0a") if danger else CAT["hurt"], true)
 			il.add_theme_stylebox_override("normal", sb(CAT["hurt"] if danger else Color(0, 0, 0, 0.4), CAT["hurt"], 6, 1, 4))
 		var po = Portrait.new()
-		po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 62.0, bold)
+		po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 70.0, bold)
 		po.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		v.add_child(po)
 		if who["hp"] <= 0:
@@ -796,7 +802,7 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threate
 		nl.clip_text = true
 		nl.custom_minimum_size = Vector2(52, 0)
 		var po2 = Portrait.new()
-		po2.setup("enemy", str(who["key"]), str(who["name"]), CAT["atk"], 58.0, bold, who["boss"])
+		po2.setup("enemy", str(who["key"]), str(who["name"]), CAT["atk"], 68.0, bold, who["boss"])
 		po2.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		v.add_child(po2)
 		desc = "%s%s · 체력 %d/%d · %s" % [who["name"], " (원거리)" if who["ranged"] else "", who["hp"], who["maxhp"], it["t"]]
@@ -946,13 +952,14 @@ func _update_links() -> void:
 			continue
 		var er: Rect2 = ec.get_global_rect()
 		var k: String = e["face"]["k"]
-		var cells: Array = combat.enemy_threat_cells(e)
-		if str(e["tmode"]) == "row":
-			var f: Dictionary = combat.front_of_row(combat.heroes, int(e["tr"]))
-			cells = [[0, int(e["tr"])]] if f.is_empty() else [[int(f["c"]), int(f["r"])]]
-		if int(e["forced"]) >= 0 and str(e["tmode"]) != "cross":
-			var fh: Dictionary = combat.heroes[int(e["forced"])]
-			cells = [[int(fh["c"]), int(fh["r"])]]
+		var cells := []
+		if str(e["tmode"]) == "cross":
+			cells = [[int(e["tc"]), int(e["tr"])]]
+		else:
+			for v in combat.enemy_victims(e):
+				cells.append([int(v["c"]), int(v["r"])])
+			if cells.is_empty():
+				cells = [[0 if str(e["tmode"]) == "row" else int(e["tc"]), int(e["tr"])]]
 		for cell in cells:
 			var hc = cell_ui.get("hero%d%d" % [int(cell[0]), int(cell[1])])
 			if hc == null or not is_instance_valid(hc):
