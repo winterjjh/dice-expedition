@@ -700,7 +700,7 @@ func target_mode() -> String:
 func refresh() -> void:
 	var c = combat
 	clear_screen()
-	set_backdrop("act%d" % (int(Game.run["act"]) + 1), 0.62)
+	set_backdrop("act%d" % (int(Game.run["act"]) + 1), 0.36)
 	top_bar()
 	var mode := target_mode()
 	# the two boards face each other in the middle, with a column on each side
