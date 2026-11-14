@@ -19,6 +19,7 @@ var result := ""
 var rng := RandomNumberGenerator.new()
 var hero_moved := false
 var _aimed := []
+var undo_stack := []   # snapshots taken before each move / die use / spell this turn
 
 ## Each side stands on its own 3x3 grid. "c" is the column (0 = front, next to the
 ## other side) and "r" is the row (0..2).
@@ -175,6 +176,7 @@ func can_move(i: int, c: int, r: int) -> bool:
 func move_hero(i: int, c: int, r: int) -> bool:
 	if not can_move(i, c, r):
 		return false
+	_push_undo()
 	var h: Dictionary = heroes[i]
 	var other := unit_at(heroes, c, r, true)
 	if not other.is_empty():
@@ -185,6 +187,53 @@ func move_hero(i: int, c: int, r: int) -> bool:
 	hero_moved = true
 	log_add("%s 이동" % hero_label(h) + ("" if other.is_empty() else " · %s와 자리 바꿈" % hero_label(other)))
 	sync_targets()
+	return true
+
+
+# ---------------- undo ----------------
+## Everything except the roll itself can be taken back until the turn ends.
+func _push_undo() -> void:
+	var hs := []
+	var ps := []
+	for h in heroes:
+		var cp: Dictionary = h.duplicate(true)
+		cp["p"] = h["p"]
+		hs.append(cp)
+		ps.append({"uses": h["p"]["uses"].duplicate(), "bonus": h["p"]["bonus"].duplicate()})
+	undo_stack.append({
+		"heroes": hs, "party": ps, "enemies": enemies.duplicate(true), "mana": mana,
+		"atk_bonus": atk_bonus, "logs": logs.duplicate(), "hero_moved": hero_moved,
+		"aimed": _aimed.duplicate(), "gold": int(run.get("gold", 0)), "rng": rng.state,
+	})
+
+
+func can_undo() -> bool:
+	return result == "" and not undo_stack.is_empty()
+
+
+func undo() -> bool:
+	if not can_undo():
+		return false
+	var s: Dictionary = undo_stack.pop_back()
+	for i in heroes.size():
+		var h: Dictionary = heroes[i]
+		h.clear()
+		h.merge(s["heroes"][i])
+		h["p"]["uses"] = s["party"][i]["uses"]
+		h["p"]["bonus"] = s["party"][i]["bonus"]
+	for j in enemies.size():
+		var e: Dictionary = enemies[j]
+		e.clear()
+		e.merge(s["enemies"][j])
+	mana = int(s["mana"])
+	atk_bonus = int(s["atk_bonus"])
+	logs = s["logs"]
+	hero_moved = bool(s["hero_moved"])
+	_aimed = s["aimed"]
+	run["gold"] = int(s["gold"])
+	rng.state = int(s["rng"])
+	events = []
+	log_add("되돌림")
 	return true
 
 
@@ -486,6 +535,7 @@ func reroll() -> bool:
 	if not can_reroll():
 		return false
 	rerolls -= 1
+	undo_stack = []
 	roll_heroes(false)
 	log_add("다시 굴림 · 남은 횟수 %d" % rerolls)
 	return true
@@ -686,6 +736,7 @@ func echo_source(h: Dictionary) -> Dictionary:
 func use_die(i: int, target = null) -> bool:
 	if not can_use(i, target):
 		return false
+	_push_undo()
 	var h: Dictionary = heroes[i]
 	var f: Dictionary = h["face"]
 	var k: String = f["k"]
@@ -996,6 +1047,7 @@ func can_cast(s: String, target = null) -> bool:
 func cast(s: String, target = null) -> bool:
 	if not can_cast(s, target):
 		return false
+	_push_undo()
 	var sp: Dictionary = D.spells[s]
 	mana -= int(sp["cost"])
 	match s:
@@ -1046,6 +1098,7 @@ func _check_end() -> void:
 func end_turn() -> void:
 	if result != "":
 		return
+	undo_stack = []
 	if phase == "roll":
 		confirm()
 	for e in live_enemies():

@@ -116,6 +116,10 @@ func reward(run: Dictionary, rng: RandomNumberGenerator, elite: bool) -> void:
 			p["items"].append(keys[rng.randi_range(0, keys.size() - 1)])
 
 
+var undo_checks := 0
+var undo_fail := 0
+
+
 func play_fight(run: Dictionary, kind: String, group: Array, face_use: Dictionary) -> String:
 	var c = Combat.new(Data, run, kind, group)
 	c.start()
@@ -155,7 +159,15 @@ func play_fight(run: Dictionary, kind: String, group: Array, face_use: Dictionar
 				var t = pick_target(c, h)
 				if c.can_use(h["i"], t):
 					face_use[k] = int(face_use.get(k, 0)) + 1
+					var before := state_sig(c, run)
 					c.use_die(h["i"], t)
+					if c.result == "" and undo_checks < 400:
+						undo_checks += 1
+						if not c.undo() or state_sig(c, run) != before:
+							if undo_fail < 3:
+								errors.append("되돌리기 뒤 상태 불일치: " + k)
+							undo_fail += 1
+						c.use_die(h["i"], t)
 					progress = true
 		if c.result != "":
 			break
@@ -163,6 +175,15 @@ func play_fight(run: Dictionary, kind: String, group: Array, face_use: Dictionar
 	if c.result == "":
 		return "stall"
 	return c.result
+
+
+func state_sig(c, run: Dictionary) -> String:
+	var out := [c.mana, int(run.get("gold", 0)), c.hero_moved, c.atk_bonus]
+	for h in c.heroes:
+		out.append([h["hp"], h["shield"], h["used"], h["c"], h["r"], h["heat"], h["streak"], str(h["face"]), str(h["p"]["uses"]), str(h["p"]["bonus"])])
+	for e in c.enemies:
+		out.append([e["hp"], e["shield"], e["poison"], e["c"], e["r"], e["stunned"], e["target"], e["mark"], str(e["face"])])
+	return str(out)
 
 
 func pick_spell_target(c, s: String):

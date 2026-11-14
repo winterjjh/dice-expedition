@@ -618,6 +618,8 @@ func refresh() -> void:
 	var ar := hb(mid, 10, true)
 	var mv := btn(ar, "이동 취소" if move_mode else ("이동 (%d)" % (0 if c.hero_moved else 1)), _toggle_move, false, busy or c.hero_moved)
 	mv.tooltip_text = "턴마다 한 번, 영웅 하나를 옆 칸으로 옮김. 아군이 있는 칸이면 자리 바꿈."
+	var ub := btn(ar, "되돌리기", on_undo, false, busy or not c.can_undo())
+	ub.tooltip_text = "이번 턴에 한 이동, 주사위 사용, 주문을 한 단계씩 취소. 굴림 결과는 그대로."
 	if c.phase == "roll":
 		btn(ar, "다시 굴리기 (%d)" % c.rerolls, on_reroll, false, busy or not c.can_reroll())
 		btn(ar, "굴림 확정", on_confirm, true, busy)
@@ -1124,6 +1126,17 @@ func pick_target(t: Dictionary) -> void:
 	if not ok:
 		message = "그 대상에는 쓸 수 없음"
 	after_action()
+
+
+func on_undo() -> void:
+	if busy or combat == null:
+		return
+	sel = -1
+	armed_spell = ""
+	move_mode = false
+	move_sel = -1
+	combat.undo()
+	refresh()
 
 
 func on_reroll() -> void:
