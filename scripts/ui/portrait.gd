@@ -9,6 +9,28 @@ var font: Font
 var boss := false
 var plain := false
 
+const OUTLINE := """
+shader_type canvas_item;
+uniform vec4 line : source_color = vec4(1.0, 0.25, 0.4, 1.0);
+uniform float width = 6.0;
+void fragment() {
+	vec4 c = texture(TEXTURE, UV);
+	vec2 px = TEXTURE_PIXEL_SIZE * width;
+	float a = 0.0;
+	a = max(a, texture(TEXTURE, UV + vec2(px.x, 0.0)).a);
+	a = max(a, texture(TEXTURE, UV - vec2(px.x, 0.0)).a);
+	a = max(a, texture(TEXTURE, UV + vec2(0.0, px.y)).a);
+	a = max(a, texture(TEXTURE, UV - vec2(0.0, px.y)).a);
+	a = max(a, texture(TEXTURE, UV + px * 0.7).a);
+	a = max(a, texture(TEXTURE, UV - px * 0.7).a);
+	a = max(a, texture(TEXTURE, UV + vec2(px.x, -px.y) * 0.7).a);
+	a = max(a, texture(TEXTURE, UV + vec2(-px.x, px.y) * 0.7).a);
+	vec4 rim = vec4(line.rgb, a * line.a);
+	COLOR = mix(rim, c, c.a);
+}
+"""
+static var outline_shader: Shader = null
+
 
 func setup(folder: String, key: String, name_text: String, color: Color, px: float, f: Font, is_boss := false) -> void:
 	var path := "res://art/%s/%s.png" % [folder, key]
@@ -21,6 +43,16 @@ func setup(folder: String, key: String, name_text: String, color: Color, px: flo
 	plain = folder == "enemy"
 	custom_minimum_size = Vector2(px, px)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if plain and tex != null:
+		# enemies get a glowing rim so they stand out from the dark field
+		if outline_shader == null:
+			outline_shader = Shader.new()
+			outline_shader.code = OUTLINE
+		var m := ShaderMaterial.new()
+		m.shader = outline_shader
+		m.set_shader_parameter("line", Color("#ffcf5a") if is_boss else Color("#ff3d6e"))
+		m.set_shader_parameter("width", maxf(1.0, 2.0 * tex.get_width() / px))
+		material = m
 	queue_redraw()
 
 

@@ -5,7 +5,7 @@ signal chosen(r: int, c: int)
 
 const ROWS := 7
 const COLS := 4
-const C_LINE := Color("#2d4a43")
+const C_LINE := Color("#453b78")
 const C_WALK := Color("#caa24e")
 const NODE_COLOR := {
 	"fight": Color("#f1e8d4"), "elite": Color("#d65a4a"), "forge": Color("#77a9cc"),
@@ -51,7 +51,7 @@ func _make_button(r: int, c: int, type: String, node_info: Dictionary) -> void:
 	var col: Color = NODE_COLOR[type]
 	var op := _is_open(r, c)
 	var vis := _visited(r, c)
-	var bg := Color("#caa24e") if vis else Color("#19302b")
+	var bg := Color("#caa24e") if vis else Color("#221c40")
 	var s := StyleBoxFlat.new()
 	s.bg_color = bg
 	s.set_corner_radius_all(30)

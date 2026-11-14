@@ -41,7 +41,7 @@ func setup(value: int, maxv: int, guard: int, color: Color, width: float, compac
 
 
 func _draw() -> void:
-	var empty := Color("#0d0b09")
+	var empty := Color("#0d0a1c")
 	if bar:
 		draw_rect(Rect2(0, 0, bar_w, 12), empty)
 		draw_rect(Rect2(0, 0, bar_w * float(hp) / maxhp, 12), col)

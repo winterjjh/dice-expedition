@@ -12,15 +12,17 @@ const TRAY_DIE := 88.0
 const ROLE_COL := {"front": Color("#77a9cc"), "shooter": Color("#a9c64a"), "mage": Color("#a988e0"), "support": Color("#8cc47a")}
 const ECAT := {"atk": "atk", "all": "atk", "shield": "def", "heal": "heal", "poison": "poison", "hex": "trick", "blank": "blank"}
 
-const C_BG := Color("#14110f")
-const C_PANEL := Color("#2b2520")
-const C_PANEL2 := Color("#1b1714")
-const C_LINE := Color("#54473a")
+const C_BG := Color("#0c0a1c")
+const C_PANEL := Color("#221c40")
+const C_PANEL2 := Color("#15112b")
+const C_LINE := Color("#453b78")
 const C_IVORY := Color("#f1e8d4")
 const C_INK := Color("#2b231f")
-const C_BRASS := Color("#caa24e")
-const C_TEXT := Color("#e6e0d0")
-const C_MUTED := Color("#a89c8a")
+const C_BRASS := Color("#e6bb52")
+const C_TEXT := Color("#e8e4f5")
+const C_MUTED := Color("#9d95c2")
+const C_GLOW := Color("#5fe0ff")    # selectable things glow cyan
+const C_DANGER := Color("#ff4f9a")  # threatened tiles glow magenta
 const CAT := {
 	"atk": Color("#d65a4a"), "def": Color("#77a9cc"), "heal": Color("#8cc47a"),
 	"mana": Color("#a988e0"), "poison": Color("#a9c64a"), "trick": Color("#e0b850"),
@@ -30,6 +32,8 @@ const CAT := {
 var font: Font
 var bold: Font
 var mid_font: Font
+var pool_tex: GradientTexture2D
+var pool_mat: CanvasItemMaterial
 var anim := true   # tests switch this off so handlers run without waiting
 var root: VBoxContainer
 var fx: Control
@@ -73,6 +77,57 @@ func _ready() -> void:
 	backdrop_dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	backdrop_dim.color = Color(0, 0, 0, 0)
 	add_child(backdrop_dim)
+	var vg := GradientTexture2D.new()
+	var vgrad := Gradient.new()
+	vgrad.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+	vgrad.colors = PackedColorArray([Color(0, 0, 0, 0), Color(0.02, 0.0, 0.08, 0.0), Color(0.02, 0.0, 0.08, 0.9)])
+	vg.gradient = vgrad
+	vg.fill = GradientTexture2D.FILL_RADIAL
+	vg.fill_from = Vector2(0.5, 0.5)
+	vg.fill_to = Vector2(1.05, 0.5)
+	var vignette := TextureRect.new()
+	vignette.texture = vg
+	vignette.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vignette.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	vignette.stretch_mode = TextureRect.STRETCH_SCALE
+	vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(vignette)
+	# slow glowing motes drifting up through every screen
+	var motes := CPUParticles2D.new()
+	motes.amount = 46
+	motes.lifetime = 9.0
+	motes.preprocess = 9.0
+	motes.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+	motes.emission_rect_extents = Vector2(760, 420)
+	motes.position = Vector2(640, 420)
+	motes.direction = Vector2(0, -1)
+	motes.spread = 40.0
+	motes.gravity = Vector2.ZERO
+	motes.initial_velocity_min = 5.0
+	motes.initial_velocity_max = 16.0
+	motes.scale_amount_min = 2.0
+	motes.scale_amount_max = 4.0
+	var tint := Gradient.new()
+	tint.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	tint.colors = PackedColorArray([Color("#ff4fc3"), Color("#b98cff"), Color("#5fe0ff")])
+	motes.color_initial_ramp = tint
+	var fade := Gradient.new()
+	fade.offsets = PackedFloat32Array([0.0, 0.2, 0.8, 1.0])
+	fade.colors = PackedColorArray([Color(1, 1, 1, 0), Color(1, 1, 1, 0.8), Color(1, 1, 1, 0.8), Color(1, 1, 1, 0)])
+	motes.color_ramp = fade
+	var add_mat := CanvasItemMaterial.new()
+	add_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	motes.material = add_mat
+	add_child(motes)
+	var pg := Gradient.new()
+	pg.offsets = PackedFloat32Array([0.0, 1.0])
+	pg.colors = PackedColorArray([Color(1, 1, 1, 0.75), Color(1, 1, 1, 0)])
+	pool_tex = GradientTexture2D.new()
+	pool_tex.gradient = pg
+	pool_tex.fill = GradientTexture2D.FILL_RADIAL
+	pool_tex.fill_from = Vector2(0.5, 0.5)
+	pool_tex.fill_to = Vector2(1.0, 0.5)
+	pool_mat = add_mat
 	links = LinkLayer.new()
 	links.set_anchors_preset(Control.PRESET_FULL_RECT)
 	links.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -139,6 +194,13 @@ func sb(bg: Color, border: Color, radius := 8, bw := 1, pad := 10) -> StyleBoxFl
 	return s
 
 
+## Soft coloured light around a panel, used for anything that should read as lit.
+func glow(s: StyleBoxFlat, col: Color, size := 8, alpha := 0.55) -> StyleBoxFlat:
+	s.shadow_color = Color(col, alpha)
+	s.shadow_size = size
+	return s
+
+
 ## Chunky key-cap button: a thick lower edge that flattens when pressed.
 func kb(bg: Color, edge: Color, down := false, pad := 12) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
@@ -159,8 +221,8 @@ func _make_theme() -> Theme:
 	var th := Theme.new()
 	th.default_font = mid_font
 	th.default_font_size = 15
-	var key := Color("#4a4036")
-	var edge := Color("#16120f")
+	var key := Color("#3a3168")
+	var edge := Color("#0d0a1c")
 	th.set_stylebox("normal", "Button", kb(key, edge))
 	th.set_stylebox("hover", "Button", kb(key.lightened(0.12), C_BRASS))
 	th.set_stylebox("pressed", "Button", kb(key.darkened(0.1), C_BRASS, true))
@@ -181,7 +243,9 @@ func set_backdrop(key: String, dim := 0.55) -> void:
 	var path := "res://art/bg/%s.jpg" % key
 	if key != "" and ResourceLoader.exists(path):
 		backdrop.texture = load(path)
-		backdrop_dim.color = Color(0.03, 0.07, 0.06, dim)
+		var night: bool = key.begins_with("act")
+		backdrop.modulate = Color(0.62, 0.55, 1.0) if night else Color.WHITE
+		backdrop_dim.color = Color(0.05, 0.02, 0.14, dim) if night else Color(0.03, 0.02, 0.08, dim)
 	else:
 		backdrop.texture = null
 		backdrop_dim.color = Color(0, 0, 0, 0)
@@ -353,7 +417,7 @@ func hp_bar(parent: Node, value: int, maxv: int, col: Color) -> ProgressBar:
 	pb.show_percentage = false
 	pb.custom_minimum_size = Vector2(0, 12)
 	pb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	pb.add_theme_stylebox_override("background", sb(Color("#0c1916"), C_LINE, 5, 1, 0))
+	pb.add_theme_stylebox_override("background", sb(Color("#0d0a1c"), C_LINE, 5, 1, 0))
 	pb.add_theme_stylebox_override("fill", sb(col, col, 5, 0, 0))
 	parent.add_child(pb)
 	return pb
@@ -717,6 +781,13 @@ func refresh() -> void:
 	_update_links()
 
 
+func hand_box(alive: bool, picked: bool, col: Color) -> StyleBoxFlat:
+	var s := sb(Color("#1c1838") if alive else C_PANEL2, C_GLOW if picked else col.darkened(0.3), 2, 3 if picked else 2, 8)
+	if picked:
+		glow(s, C_GLOW, 10)
+	return s
+
+
 func side_panel(parent: Node) -> VBoxContainer:
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", sb(Color(C_PANEL2, 0.92), C_LINE, 2, 2, 8))
@@ -735,7 +806,7 @@ func hand_panel(parent: Node, h: Dictionary) -> void:
 	var alive: bool = h["hp"] > 0
 	var picked: bool = sel == int(h["i"])
 	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", sb(Color("#1f3327") if alive else C_PANEL2, Color.WHITE if picked else ROLE_COL[role].darkened(0.35), 2, 3 if picked else 2, 8))
+	p.add_theme_stylebox_override("panel", hand_box(alive, picked, ROLE_COL[role]))
 	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if not alive:
 		p.modulate = Color(1, 1, 1, 0.4)
@@ -790,7 +861,7 @@ func grid_panel(parent: Node, side: String, mode: String) -> void:
 	var c = combat
 	var side_col: Color = CAT["def"] if side == "hero" else CAT["atk"]
 	var board := PanelContainer.new()
-	board.add_theme_stylebox_override("panel", sb(Color("#100d0b"), side_col.darkened(0.45), 2, 3, 6))
+	board.add_theme_stylebox_override("panel", glow(sb(Color("#0d0a1c"), side_col.darkened(0.25), 2, 3, 6), side_col, 14, 0.3))
 	board.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	parent.add_child(board)
 	var wrap := vb(board, 4)
@@ -851,25 +922,34 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 		pick = true
 	var chosen: bool = move_mode and side == "hero" and not u.is_empty() and int(u["i"]) == move_sel
 	# floor tile: a plain checker board, tinted when aimed at or selectable
-	var bg := Color("#2e2822") if (c + r) % 2 == 0 else Color("#383028")
+	var bg := Color("#241d47") if (c + r) % 2 == 0 else Color("#2c2456")
 	var border := Color(0, 0, 0, 0)
 	var bw := 0
+	var lit := Color(0, 0, 0, 0)
 	if threat == 2:
-		bg = Color("#5a2019")
-		border = CAT["hurt"]
+		bg = Color("#4d1846")
+		border = C_DANGER
 		bw = 2
+		lit = C_DANGER
 	elif threat == 1:
-		bg = bg.lerp(Color("#5a2019"), 0.45)
+		bg = bg.lerp(Color("#4d1846"), 0.45)
 	if pick:
-		border = C_BRASS
+		border = C_GLOW
 		bw = 3
-		bg = bg.lightened(0.12)
+		bg = bg.lightened(0.1)
+		lit = C_GLOW
 	if chosen:
 		border = Color.WHITE
 		bw = 3
+		lit = Color.WHITE
+	var cell_box := sb(bg, border, 0, bw, 4)
+	if lit.a > 0.0:
+		glow(cell_box, lit, 9, 0.5)
 	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", sb(bg, border, 0, bw, 4))
+	p.add_theme_stylebox_override("panel", cell_box)
 	p.custom_minimum_size = Vector2(136, 136)
+	if lit.a > 0.0:
+		p.z_index = 1
 	parent.add_child(p)
 	cell_ui["%s%d%d" % [side, c, r]] = p
 	if pick or (move_mode and side == "hero"):
@@ -886,6 +966,17 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 	var unit := Control.new()
 	unit.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(unit)
+	# a pool of coloured light under the unit's feet
+	var pool := TextureRect.new()
+	pool.texture = pool_tex
+	pool.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pool.stretch_mode = TextureRect.STRETCH_SCALE
+	pool.material = pool_mat
+	pool.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pool.position = Vector2(6, 62)
+	pool.size = Vector2(116, 52)
+	pool.modulate = Color(ROLE_COL[Data.hero_class(who["p"])["role"]] if side == "hero" else Color("#ff4f6a"), 0.55 if who["hp"] > 0 else 0.0)
+	unit.add_child(pool)
 	var v := vb(unit, 2)
 	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -972,7 +1063,7 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 	for bi in mini(badges.size(), 3):
 		var bd: Array = badges[bi]
 		var bcol: Color = CAT[bd[1]]
-		var bl := lbl(brow, str(bd[0]), 12, Color("#14110f"), true)
+		var bl := lbl(brow, str(bd[0]), 12, Color("#0d0a1c"), true)
 		bl.add_theme_stylebox_override("normal", sb(bcol, bcol.darkened(0.4), 2, 1, 3))
 		bl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if badges.size() > 3:
@@ -1200,7 +1291,7 @@ func _float_text(at: Vector2, text: String, col: Color, size := 24, delay := 0.0
 	l.add_theme_font_size_override("font_size", fs[1])
 	l.add_theme_color_override("font_color", col)
 	if plate:
-		l.add_theme_stylebox_override("normal", sb(Color("#100d0b"), col, 2, 2, 6))
+		l.add_theme_stylebox_override("normal", glow(sb(Color("#0d0a1c"), col, 2, 2, 6), col, 8, 0.5))
 	else:
 		l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 		l.add_theme_constant_override("outline_size", 6)
