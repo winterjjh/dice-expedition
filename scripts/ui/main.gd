@@ -639,86 +639,143 @@ func refresh() -> void:
 	set_backdrop("act%d" % (int(Game.run["act"]) + 1), 0.62)
 	top_bar()
 	var mode := target_mode()
-	var body := hb(root, 14)
+	# the two boards face each other in the middle, with a column on each side
+	var body := hb(root, 12)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.alignment = BoxContainer.ALIGNMENT_CENTER
-	grid_panel(body, "hero", mode)
-	# dice tray in the middle
-	var mid := vb(body, 12)
-	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mid.alignment = BoxContainer.ALIGNMENT_CENTER
-	var last := ""
-	if c.logs.size() > 0:
-		last = c.logs[c.logs.size() - 1]
-	var turn_l := lbl(mid, "%d턴 · %s" % [c.turn, "적의 차례" if busy else ("굴림" if c.phase == "roll" else "행동")], 15, C_BRASS)
+	var left := side_panel(body)
+	var turn_l := lbl(left, "%d턴" % c.turn, 24, C_BRASS, true)
 	turn_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var plaque := PanelContainer.new()
-	plaque.add_theme_stylebox_override("panel", sb(Color(C_PANEL2, 0.95), C_LINE, 2, 2, 10))
-	plaque.custom_minimum_size = Vector2(0, 64)
-	mid.add_child(plaque)
-	var logl := lbl(plaque, message if message != "" else last, 15, C_TEXT, false, true)
-	logl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	logl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	message = ""
-	var felt := PanelContainer.new()
-	felt.add_theme_stylebox_override("panel", sb(Color("#1f3327"), Color("#6b4f1c"), 2, 3, 10))
-	mid.add_child(felt)
-	var tray := hb(felt, 8, true)
-	for h in c.heroes:
-		tray_slot(tray, h)
-	var ar := HFlowContainer.new()
-	ar.alignment = FlowContainer.ALIGNMENT_CENTER
-	ar.add_theme_constant_override("h_separation", 8)
-	ar.add_theme_constant_override("v_separation", 8)
-	mid.add_child(ar)
-	var mv := btn(ar, "이동 취소" if move_mode else ("이동 (%d)" % (0 if c.hero_moved else 1)), _toggle_move, false, busy or c.hero_moved)
-	mv.tooltip_text = "턴마다 한 번, 영웅 하나를 옆 칸으로 옮김. 아군이 있는 칸이면 자리 바꿈."
-	var ub := btn(ar, "되돌리기", on_undo, false, busy or not c.can_undo())
-	ub.tooltip_text = "이번 턴에 한 이동, 주사위 사용, 주문을 한 단계씩 취소. 굴림 결과는 그대로."
-	if c.phase == "roll":
-		btn(ar, "다시 굴리기 (%d)" % c.rerolls, on_reroll, false, busy or not c.can_reroll())
-		btn(ar, "굴림 확정", on_confirm, true, busy)
-		info_default = "굴림 단계 · 마음에 드는 주사위를 눌러 고정하고 나머지를 다시 굴림. 붉은 칸은 적이 노리는 자리."
-	else:
-		if sel >= 0 or armed_spell != "":
-			btn(ar, "선택 취소", _cancel_sel)
-		btn(ar, "턴 종료", on_end_turn, true, busy)
-		info_default = "사용 단계 · 주사위를 누른 뒤 빛나는 칸을 누르면 발동. [근접] 스킬은 각 가로줄 맨 앞의 적만 가능."
-	if move_mode:
-		info_default = "이동 · 옮길 영웅을 누른 뒤 바로 옆 칸을 누름. 아군이 있는 칸이면 자리 바꿈."
-	var mrow := HFlowContainer.new()
-	mrow.alignment = FlowContainer.ALIGNMENT_CENTER
-	mrow.add_theme_constant_override("h_separation", 8)
-	mrow.add_theme_constant_override("v_separation", 6)
-	mid.add_child(mrow)
-	ui_icon(mrow, "mana", 30.0)
-	var ml := lbl(mrow, "마나 %d" % c.mana, 16, CAT["mana"], true)
-	ml.add_theme_stylebox_override("normal", sb(Color(0.08, 0.05, 0.14, 0.9), CAT["mana"], 2, 2, 8))
-	for s in c.spells_available():
+	var ph_l := lbl(left, "적의 차례" if busy else ("굴림 단계" if c.phase == "roll" else "행동 단계"), 15, CAT["hurt"] if busy else C_TEXT)
+	ph_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var mrow := hb(left, 6, true)
+	ui_icon(mrow, "mana", 28.0)
+	lbl(mrow, "마나 %d" % c.mana, 15, CAT["mana"])
+	var spells: Array = c.spells_available()
+	if spells.is_empty():
+		var none := lbl(left, "주문 없음", 12, C_MUTED)
+		none.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	for s in spells:
 		var spd: Dictionary = Data.spells[s]
 		var off: bool = c.phase != "use" or c.mana < int(spd["cost"]) or busy
-		var b := btn(mrow, "%s · %d" % [spd["name"], spd["cost"]], on_spell.bind(s), false, off)
-		b.add_theme_font_size_override("font_size", 15)
+		var b := btn(left, "%s\n마나 %d" % [spd["name"], spd["cost"]], on_spell.bind(s), false, off)
 		b.tooltip_text = "%s (마나 %d) · %s" % [spd["name"], spd["cost"], spd["text"]]
 		b.mouse_entered.connect(_info_show.bind(b.tooltip_text))
 		b.mouse_exited.connect(_info_show.bind(""))
 		if armed_spell == s:
 			b.add_theme_stylebox_override("normal", kb(CAT["mana"], Color("#3a2a5c")))
 			b.add_theme_color_override("font_color", Color("#1a1226"))
+	grid_panel(body, "hero", mode)
 	grid_panel(body, "enemy", mode)
-	# hero details and the description box along the bottom
+	var right := side_panel(body)
+	var lh := lbl(right, "전투 기록", 12, C_BRASS, true)
+	lh.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var from: int = maxi(0, c.logs.size() - 7)
+	for li in range(from, c.logs.size()):
+		var newest: bool = li == c.logs.size() - 1
+		lbl(right, str(c.logs[li]), 12, C_TEXT if newest else Color(C_MUTED, 0.75), newest, true)
+	# bottom row: every hero's die with its six faces, then the turn buttons
 	var foot := hb(root, 8)
 	for h in c.heroes:
-		hero_strip(foot, h)
+		hand_panel(foot, h)
+	var ar := GridContainer.new()
+	ar.columns = 2
+	ar.add_theme_constant_override("h_separation", 6)
+	ar.add_theme_constant_override("v_separation", 6)
+	ar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	foot.add_child(ar)
+	var acts := []
+	var mv := btn(ar, "이동 취소" if move_mode else ("이동 (%d)" % (0 if c.hero_moved else 1)), _toggle_move, false, busy or c.hero_moved)
+	mv.tooltip_text = "턴마다 한 번, 영웅 하나를 옆 칸으로 옮김. 아군이 있는 칸이면 자리 바꿈."
+	acts.append(mv)
+	var ub := btn(ar, "되돌리기", on_undo, false, busy or not c.can_undo())
+	ub.tooltip_text = "이번 턴에 한 이동, 주사위 사용, 주문을 한 단계씩 취소. 굴림 결과는 그대로."
+	acts.append(ub)
+	if c.phase == "roll":
+		acts.append(btn(ar, "다시 굴리기 (%d)" % c.rerolls, on_reroll, false, busy or not c.can_reroll()))
+		acts.append(btn(ar, "굴림 확정", on_confirm, true, busy))
+		info_default = "굴림 단계 · 마음에 드는 주사위를 눌러 고정하고 나머지를 다시 굴림. 붉은 칸은 적이 노리는 자리."
+	else:
+		acts.append(btn(ar, "선택 취소", _cancel_sel, false, sel < 0 and armed_spell == ""))
+		acts.append(btn(ar, "턴 종료", on_end_turn, true, busy))
+		info_default = "행동 단계 · 주사위를 누른 뒤 빛나는 칸을 누르면 발동. [근접] 스킬은 각 가로줄 맨 앞의 적만 가능."
+	for ab in acts:
+		ab.custom_minimum_size = Vector2(142, 0)
+	if move_mode:
+		info_default = "이동 · 옮길 영웅을 누른 뒤 바로 옆 칸을 누름. 아군이 있는 칸이면 자리 바꿈."
+	if message != "":
+		info_default = message
+		message = ""
 	var ip := PanelContainer.new()
 	ip.add_theme_stylebox_override("panel", sb(C_PANEL2, C_LINE, 2, 2, 12))
-	ip.custom_minimum_size = Vector2(0, 64)
+	ip.custom_minimum_size = Vector2(0, 54)
 	root.add_child(ip)
 	info_lbl = lbl(ip, info_default, 15, C_MUTED, false, true)
 	info_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	info_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_play_events.call_deferred()
 	_update_links()
+
+
+func side_panel(parent: Node) -> VBoxContainer:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", sb(Color(C_PANEL2, 0.92), C_LINE, 2, 2, 8))
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	p.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	p.custom_minimum_size = Vector2(150, 430)
+	parent.add_child(p)
+	var v := vb(p, 8)
+	return v
+
+
+## One hero's "hand": this turn's die (click to lock or use) next to all six faces.
+func hand_panel(parent: Node, h: Dictionary) -> void:
+	var pp: Dictionary = h["p"]
+	var role: String = Data.hero_class(pp)["role"]
+	var alive: bool = h["hp"] > 0
+	var picked: bool = sel == int(h["i"])
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", sb(Color("#1f3327") if alive else C_PANEL2, Color.WHITE if picked else ROLE_COL[role].darkened(0.35), 2, 3 if picked else 2, 8))
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if not alive:
+		p.modulate = Color(1, 1, 1, 0.4)
+	parent.add_child(p)
+	var row := hb(p, 8)
+	var holder := Control.new()
+	holder.custom_minimum_size = Vector2(TRAY_DIE, TRAY_DIE)
+	holder.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(holder)
+	if alive and h["face"] != null:
+		var face: Dictionary = combat.shown_face(h)
+		var locked: bool = combat.phase == "roll" and h["locked"]
+		var d = die_widget(holder, face, locked, picked, h["used"], on_die.bind(int(h["i"])), h["fresh"])
+		d.mouse_entered.connect(_info_show.bind(Data.face_desc(face)))
+		d.mouse_exited.connect(_info_show.bind(""))
+		h["fresh"] = false
+	var v := vb(row, 3)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	var nl := lbl(v, Data.hero_class(pp)["name"], 12, ROLE_COL[role], true)
+	nl.clip_text = true
+	var st := _hero_status(h)
+	var sl := lbl(v, st if st != "" else "체력 %d/%d" % [h["hp"], h["maxhp"]], 12, CAT["def"] if st != "" else C_MUTED)
+	sl.clip_text = true
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 3)
+	grid.add_theme_constant_override("v_separation", 3)
+	v.add_child(grid)
+	var cur := -1
+	if h["face"] != null:
+		cur = int(h["face_idx"])
+	for i in 6:
+		var f6: Dictionary = Data.hero_face(pp, i)
+		var m = make_die(grid, f6, 30.0)
+		m.selected = i == cur and alive
+		m.dim = not alive
+		m.mouse_entered.connect(_info_show.bind(Data.face_desc(f6)))
+		m.mouse_exited.connect(_info_show.bind(""))
 
 
 func _toggle_move() -> void:
@@ -812,7 +869,7 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 		bw = 3
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", sb(bg, border, 0, bw, 4))
-	p.custom_minimum_size = Vector2(124, 124)
+	p.custom_minimum_size = Vector2(136, 136)
 	parent.add_child(p)
 	cell_ui["%s%d%d" % [side, c, r]] = p
 	if pick or (move_mode and side == "hero"):
@@ -846,7 +903,7 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 		nl0.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		nl0.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var po = Portrait.new()
-		po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 66.0, bold)
+		po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 78.0, bold)
 		po.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		v.add_child(po)
 		if who["hp"] <= 0:
@@ -861,7 +918,7 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 			var md = make_die(unit, cb.shown_face(who), 30.0)
 			md.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			md.dim = who["used"]
-			md.position = Vector2(84, 16)
+			md.position = Vector2(96, 16)
 		var inc: int = cb.incoming_for(who) if who["hp"] > 0 else 0
 		if inc > 0:
 			var danger: bool = inc >= int(who["hp"]) + int(who["shield"])
@@ -887,9 +944,9 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 				lbl(top2, str(val), 15, CAT[ECAT.get(k, "blank")], true)
 		var nl := lbl(top2, str(who["name"]), 12, C_BRASS if who["boss"] else C_TEXT, true)
 		nl.clip_text = true
-		nl.custom_minimum_size = Vector2(56, 0)
+		nl.custom_minimum_size = Vector2(66, 0)
 		var po2 = Portrait.new()
-		po2.setup("enemy", str(who["key"]), str(who["name"]), CAT["atk"], 66.0, bold, who["boss"])
+		po2.setup("enemy", str(who["key"]), str(who["name"]), CAT["atk"], 78.0, bold, who["boss"])
 		po2.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		if who["stunned"] or who["frozen"]:
 			po2.modulate = Color(0.6, 0.75, 1.0) if who["frozen"] else Color(0.6, 0.6, 0.6)
@@ -1056,39 +1113,6 @@ func _enemy_status(e: Dictionary) -> String:
 	return " · ".join(PackedStringArray(st))
 
 
-func hero_strip(parent: Node, h: Dictionary) -> void:
-	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", sb(C_PANEL2, ROLE_COL[Data.hero_class(h["p"])["role"]].darkened(0.45), 2, 2, 8))
-	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	if h["hp"] <= 0:
-		p.modulate = Color(1, 1, 1, 0.4)
-	parent.add_child(p)
-	var row := hb(p, 8)
-	var v := vb(row, 2)
-	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var pp: Dictionary = h["p"]
-	var role: String = Data.hero_class(pp)["role"]
-	lbl(v, Data.hero_class(pp)["name"], 15, ROLE_COL[role], true)
-	var st := _hero_status(h)
-	lbl(v, st if st != "" else "체력 %d/%d" % [h["hp"], h["maxhp"]], 12, CAT["def"] if st != "" else C_MUTED, false, true)
-	var grid := GridContainer.new()
-	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 3)
-	grid.add_theme_constant_override("v_separation", 3)
-	grid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(grid)
-	var cur := -1
-	if h["face"] != null:
-		cur = int(h["face_idx"])
-	for i in 6:
-		var face: Dictionary = Data.hero_face(pp, i)
-		var m = make_die(grid, face, 32.0)
-		m.selected = i == cur and h["hp"] > 0
-		m.dim = h["hp"] <= 0
-		m.mouse_entered.connect(_info_show.bind(Data.face_desc(face)))
-		m.mouse_exited.connect(_info_show.bind(""))
-
-
 func _info_show(text: String) -> void:
 	if info_lbl != null and is_instance_valid(info_lbl):
 		info_lbl.text = text if text != "" else info_default
@@ -1140,25 +1164,6 @@ func _hero_art_key(cls: String) -> String:
 			break
 		cur = parent
 	return cur if ResourceLoader.exists("res://art/hero/%s.png" % cur) else cls
-
-
-func tray_slot(parent: Node, h: Dictionary) -> void:
-	var v := vb(parent, 4)
-	v.custom_minimum_size = Vector2(TRAY_DIE, 0)
-	if h["hp"] > 0 and h["face"] != null:
-		var face: Dictionary = combat.shown_face(h)
-		var locked: bool = combat.phase == "roll" and h["locked"]
-		var d = die_widget(v, face, locked, sel == int(h["i"]), h["used"], on_die.bind(int(h["i"])), h["fresh"])
-		d.mouse_entered.connect(_info_show.bind(Data.face_desc(face)))
-		d.mouse_exited.connect(_info_show.bind(""))
-		h["fresh"] = false
-	else:
-		var ph := Control.new()
-		ph.custom_minimum_size = Vector2(TRAY_DIE, TRAY_DIE)
-		v.add_child(ph)
-	var role: String = Data.hero_class(h["p"])["role"]
-	var nl := lbl(v, combat.hero_label(h), 12, ROLE_COL[role] if h["hp"] > 0 else Color(C_MUTED, 0.4), true)
-	nl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 
 func _cancel_sel() -> void:
