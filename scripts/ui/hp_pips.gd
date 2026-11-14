@@ -24,7 +24,7 @@ func setup(value: int, maxv: int, guard: int, color: Color, width: float, compac
 		custom_minimum_size = Vector2(width, 14)
 	else:
 		if compact:
-			pip = 8.0
+			pip = 9.0
 			gap = 1.0
 			per_row = 10
 		elif maxhp > 20:
@@ -41,7 +41,7 @@ func setup(value: int, maxv: int, guard: int, color: Color, width: float, compac
 
 
 func _draw() -> void:
-	var empty := Color("#0c1916")
+	var empty := Color("#0d0b09")
 	if bar:
 		draw_rect(Rect2(0, 0, bar_w, 12), empty)
 		draw_rect(Rect2(0, 0, bar_w * float(hp) / maxhp, 12), col)

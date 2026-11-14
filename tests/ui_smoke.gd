@@ -22,6 +22,7 @@ func _ready() -> void:
 	await step("party overlay")
 	main.close_overlay()
 	# a fight, driven through the same handlers the buttons call
+	main.anim = false
 	main.start_fight("fight")
 	await step("fight roll")
 	main.on_reroll()
@@ -42,8 +43,7 @@ func _ready() -> void:
 		if main.combat == null or main.combat.result != "":
 			break
 	if main.combat != null and main.combat.result == "":
-		main.combat.end_turn()
-		main.refresh()
+		main.on_end_turn()
 		await step("after enemy turn")
 	# rewards and the other screens
 	main.start_fight("elite")

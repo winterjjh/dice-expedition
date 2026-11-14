@@ -35,8 +35,8 @@ func _draw() -> void:
 	box.bg_color = col.darkened(0.62)
 	box.border_color = Color("#caa24e") if boss else col.darkened(0.15)
 	box.set_border_width_all(3)
-	box.set_corner_radius_all(6)
-	box.anti_aliasing = true
+	box.set_corner_radius_all(2)
+	box.anti_aliasing = false
 	if tex != null:
 		draw_texture_rect(tex, Rect2(o + Vector2(2, 2), Vector2(s - 4, s - 4)), false)
 		box.draw_center = false

@@ -8,19 +8,19 @@ const DieFace = preload("res://scripts/ui/die_face.gd")
 const HpPips = preload("res://scripts/ui/hp_pips.gd")
 const Portrait = preload("res://scripts/ui/portrait.gd")
 const LinkLayer = preload("res://scripts/ui/link_layer.gd")
-const TRAY_DIE := 100.0
+const TRAY_DIE := 88.0
 const ROLE_COL := {"front": Color("#77a9cc"), "shooter": Color("#a9c64a"), "mage": Color("#a988e0"), "support": Color("#8cc47a")}
 const ECAT := {"atk": "atk", "all": "atk", "shield": "def", "heal": "heal", "poison": "poison", "hex": "trick", "blank": "blank"}
 
-const C_BG := Color("#122420")
-const C_PANEL := Color("#19302b")
-const C_PANEL2 := Color("#10201c")
-const C_LINE := Color("#2d4a43")
+const C_BG := Color("#14110f")
+const C_PANEL := Color("#2b2520")
+const C_PANEL2 := Color("#1b1714")
+const C_LINE := Color("#54473a")
 const C_IVORY := Color("#f1e8d4")
 const C_INK := Color("#2b231f")
 const C_BRASS := Color("#caa24e")
 const C_TEXT := Color("#e6e0d0")
-const C_MUTED := Color("#94a69f")
+const C_MUTED := Color("#a89c8a")
 const CAT := {
 	"atk": Color("#d65a4a"), "def": Color("#77a9cc"), "heal": Color("#8cc47a"),
 	"mana": Color("#a988e0"), "poison": Color("#a9c64a"), "trick": Color("#e0b850"),
@@ -29,6 +29,8 @@ const CAT := {
 
 var font: Font
 var bold: Font
+var mid_font: Font
+var anim := true   # tests switch this off so handlers run without waiting
 var root: VBoxContainer
 var fx: Control
 var overlay: Control = null
@@ -50,8 +52,9 @@ var cell_ui := {}
 
 
 func _ready() -> void:
-	font = load("res://fonts/IBMPlexSansKR-Regular.ttf")
-	bold = load("res://fonts/IBMPlexSansKR-Bold.ttf")
+	font = _pixel_font("res://fonts/Galmuri11.ttf")
+	bold = _pixel_font("res://fonts/Galmuri11-Bold.ttf")
+	mid_font = _pixel_font("res://fonts/Galmuri14.ttf")
 	theme = _make_theme()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	var bg := ColorRect.new()
@@ -100,12 +103,35 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 # =============== theme & widget helpers ===============
 
+func _pixel_font(path: String) -> Font:
+	var f: FontFile = load(path)
+	f.antialiasing = TextServer.FONT_ANTIALIASING_NONE
+	f.hinting = TextServer.HINTING_NONE
+	f.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
+	return f
+
+
+## Pixel fonts only look right at their own sizes, so every text size snaps to
+## one of them: 12 and 24 (Galmuri11), 15 and 30 (Galmuri14), 36.
+func pf(size: int, is_bold := false) -> Array:
+	if size <= 13:
+		return [bold if is_bold else font, 12]
+	if size <= 19:
+		return [mid_font, 15]
+	if size <= 27:
+		return [bold if is_bold else font, 24]
+	if size <= 33:
+		return [mid_font, 30]
+	return [bold if is_bold else font, 36]
+
+
 func sb(bg: Color, border: Color, radius := 8, bw := 1, pad := 10) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
 	s.bg_color = bg
 	s.border_color = border
-	s.set_border_width_all(bw)
-	s.set_corner_radius_all(radius)
+	s.set_border_width_all(maxi(bw, 2) if bw > 0 else 0)
+	s.set_corner_radius_all(mini(radius, 2))
+	s.anti_aliasing = false
 	s.content_margin_left = pad
 	s.content_margin_right = pad
 	s.content_margin_top = pad * 0.7
@@ -113,23 +139,41 @@ func sb(bg: Color, border: Color, radius := 8, bw := 1, pad := 10) -> StyleBoxFl
 	return s
 
 
+## Chunky key-cap button: a thick lower edge that flattens when pressed.
+func kb(bg: Color, edge: Color, down := false, pad := 12) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = bg
+	s.border_color = edge
+	s.set_border_width_all(2)
+	s.border_width_bottom = 2 if down else 6
+	s.set_corner_radius_all(2)
+	s.anti_aliasing = false
+	s.content_margin_left = pad
+	s.content_margin_right = pad
+	s.content_margin_top = 7 + (4 if down else 0)
+	s.content_margin_bottom = 7
+	return s
+
+
 func _make_theme() -> Theme:
 	var th := Theme.new()
-	th.default_font = font
-	th.default_font_size = 18
-	th.set_stylebox("normal", "Button", sb(C_PANEL, C_LINE))
-	th.set_stylebox("hover", "Button", sb(C_LINE, C_BRASS))
-	th.set_stylebox("pressed", "Button", sb(C_LINE, C_IVORY))
-	th.set_stylebox("disabled", "Button", sb(Color(C_PANEL, 0.5), Color(C_LINE, 0.5)))
-	th.set_stylebox("focus", "Button", sb(Color(0, 0, 0, 0), C_IVORY, 8, 2))
+	th.default_font = mid_font
+	th.default_font_size = 15
+	var key := Color("#4a4036")
+	var edge := Color("#16120f")
+	th.set_stylebox("normal", "Button", kb(key, edge))
+	th.set_stylebox("hover", "Button", kb(key.lightened(0.12), C_BRASS))
+	th.set_stylebox("pressed", "Button", kb(key.darkened(0.1), C_BRASS, true))
+	th.set_stylebox("disabled", "Button", kb(Color(key, 0.35), Color(edge, 0.5)))
+	th.set_stylebox("focus", "Button", sb(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 2, 0))
 	for k in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
 		th.set_color(k, "Button", C_TEXT)
-	th.set_color("font_disabled_color", "Button", Color(C_MUTED, 0.6))
+	th.set_color("font_disabled_color", "Button", Color(C_MUTED, 0.45))
 	th.set_color("font_color", "Label", C_TEXT)
-	th.set_stylebox("panel", "PanelContainer", sb(C_PANEL, C_LINE, 10, 1, 12))
-	th.set_stylebox("panel", "TooltipPanel", sb(C_PANEL2, C_BRASS, 6, 1, 8))
+	th.set_stylebox("panel", "PanelContainer", sb(C_PANEL, C_LINE, 2, 2, 12))
+	th.set_stylebox("panel", "TooltipPanel", sb(C_PANEL2, C_BRASS, 2, 2, 8))
 	th.set_color("font_color", "TooltipLabel", C_TEXT)
-	th.set_font_size("font_size", "TooltipLabel", 16)
+	th.set_font_size("font_size", "TooltipLabel", 15)
 	return th
 
 
@@ -174,10 +218,10 @@ func clear_screen() -> void:
 func lbl(parent: Node, text: String, size := 18, color := C_TEXT, is_bold := false, wrap := false) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", size)
+	var fs := pf(size, is_bold)
+	l.add_theme_font_override("font", fs[0])
+	l.add_theme_font_size_override("font_size", fs[1])
 	l.add_theme_color_override("font_color", color)
-	if is_bold:
-		l.add_theme_font_override("font", bold)
 	if wrap:
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -190,12 +234,13 @@ func btn(parent: Node, text: String, cb: Callable, primary := false, disabled :=
 	b.text = text
 	b.disabled = disabled
 	if primary:
-		b.add_theme_stylebox_override("normal", sb(C_BRASS, C_BRASS))
-		b.add_theme_stylebox_override("hover", sb(C_BRASS.lightened(0.15), C_IVORY))
-		b.add_theme_stylebox_override("pressed", sb(C_BRASS.darkened(0.1), C_IVORY))
+		var edge := Color("#6b4f1c")
+		b.add_theme_stylebox_override("normal", kb(C_BRASS, edge))
+		b.add_theme_stylebox_override("hover", kb(C_BRASS.lightened(0.18), edge))
+		b.add_theme_stylebox_override("pressed", kb(C_BRASS.darkened(0.1), edge, true))
+		b.add_theme_stylebox_override("disabled", kb(Color(C_BRASS.darkened(0.45), 0.6), Color(edge, 0.6)))
 		for k in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
 			b.add_theme_color_override(k, Color("#1b1408"))
-		b.add_theme_font_override("font", bold)
 	b.pressed.connect(cb)
 	parent.add_child(b)
 	return b
@@ -591,7 +636,7 @@ func target_mode() -> String:
 func refresh() -> void:
 	var c = combat
 	clear_screen()
-	set_backdrop("act%d" % (int(Game.run["act"]) + 1), 0.5)
+	set_backdrop("act%d" % (int(Game.run["act"]) + 1), 0.62)
 	top_bar()
 	var mode := target_mode()
 	var body := hb(root, 14)
@@ -605,17 +650,27 @@ func refresh() -> void:
 	var last := ""
 	if c.logs.size() > 0:
 		last = c.logs[c.logs.size() - 1]
-	var logl := lbl(mid, message if message != "" else last, 16, C_TEXT, false, true)
+	var turn_l := lbl(mid, "%d턴 · %s" % [c.turn, "적의 차례" if busy else ("굴림" if c.phase == "roll" else "행동")], 15, C_BRASS)
+	turn_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var plaque := PanelContainer.new()
+	plaque.add_theme_stylebox_override("panel", sb(Color(C_PANEL2, 0.95), C_LINE, 2, 2, 10))
+	plaque.custom_minimum_size = Vector2(0, 64)
+	mid.add_child(plaque)
+	var logl := lbl(plaque, message if message != "" else last, 15, C_TEXT, false, true)
 	logl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	logl.custom_minimum_size = Vector2(0, 52)
 	logl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	logl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	logl.add_theme_constant_override("outline_size", 5)
 	message = ""
-	var tray := hb(mid, 10, true)
+	var felt := PanelContainer.new()
+	felt.add_theme_stylebox_override("panel", sb(Color("#1f3327"), Color("#6b4f1c"), 2, 3, 10))
+	mid.add_child(felt)
+	var tray := hb(felt, 8, true)
 	for h in c.heroes:
 		tray_slot(tray, h)
-	var ar := hb(mid, 10, true)
+	var ar := HFlowContainer.new()
+	ar.alignment = FlowContainer.ALIGNMENT_CENTER
+	ar.add_theme_constant_override("h_separation", 8)
+	ar.add_theme_constant_override("v_separation", 8)
+	mid.add_child(ar)
 	var mv := btn(ar, "이동 취소" if move_mode else ("이동 (%d)" % (0 if c.hero_moved else 1)), _toggle_move, false, busy or c.hero_moved)
 	mv.tooltip_text = "턴마다 한 번, 영웅 하나를 옆 칸으로 옮김. 아군이 있는 칸이면 자리 바꿈."
 	var ub := btn(ar, "되돌리기", on_undo, false, busy or not c.can_undo())
@@ -638,7 +693,7 @@ func refresh() -> void:
 	mid.add_child(mrow)
 	ui_icon(mrow, "mana", 30.0)
 	var ml := lbl(mrow, "마나 %d" % c.mana, 16, CAT["mana"], true)
-	ml.add_theme_stylebox_override("normal", sb(Color(0.05, 0.03, 0.1, 0.6), CAT["mana"], 14, 1, 10))
+	ml.add_theme_stylebox_override("normal", sb(Color(0.08, 0.05, 0.14, 0.9), CAT["mana"], 2, 2, 8))
 	for s in c.spells_available():
 		var spd: Dictionary = Data.spells[s]
 		var off: bool = c.phase != "use" or c.mana < int(spd["cost"]) or busy
@@ -648,7 +703,7 @@ func refresh() -> void:
 		b.mouse_entered.connect(_info_show.bind(b.tooltip_text))
 		b.mouse_exited.connect(_info_show.bind(""))
 		if armed_spell == s:
-			b.add_theme_stylebox_override("normal", sb(CAT["mana"], C_IVORY))
+			b.add_theme_stylebox_override("normal", kb(CAT["mana"], Color("#3a2a5c")))
 			b.add_theme_color_override("font_color", Color("#1a1226"))
 	grid_panel(body, "enemy", mode)
 	# hero details and the description box along the bottom
@@ -656,7 +711,7 @@ func refresh() -> void:
 	for h in c.heroes:
 		hero_strip(foot, h)
 	var ip := PanelContainer.new()
-	ip.add_theme_stylebox_override("panel", sb(Color(C_PANEL2, 0.92), C_LINE, 8, 1, 12))
+	ip.add_theme_stylebox_override("panel", sb(C_PANEL2, C_LINE, 2, 2, 12))
 	ip.custom_minimum_size = Vector2(0, 64)
 	root.add_child(ip)
 	info_lbl = lbl(ip, info_default, 15, C_MUTED, false, true)
@@ -676,14 +731,18 @@ func _toggle_move() -> void:
 
 func grid_panel(parent: Node, side: String, mode: String) -> void:
 	var c = combat
-	var wrap := vb(parent, 4)
-	wrap.alignment = BoxContainer.ALIGNMENT_CENTER
-	var head := lbl(wrap, "뒷줄 ← 원정대 → 앞줄" if side == "hero" else "앞줄 ← 적 → 뒷줄", 12, C_MUTED, true)
+	var side_col: Color = CAT["def"] if side == "hero" else CAT["atk"]
+	var board := PanelContainer.new()
+	board.add_theme_stylebox_override("panel", sb(Color("#100d0b"), side_col.darkened(0.45), 2, 3, 6))
+	board.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	parent.add_child(board)
+	var wrap := vb(board, 4)
+	var head := lbl(wrap, "뒷줄 ◀ 원정대 ▶ 앞줄" if side == "hero" else "앞줄 ◀ 적 ▶ 뒷줄", 12, side_col.lightened(0.2), true)
 	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var grid := GridContainer.new()
 	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 5)
-	grid.add_theme_constant_override("v_separation", 5)
+	grid.add_theme_constant_override("h_separation", 2)
+	grid.add_theme_constant_override("v_separation", 2)
 	wrap.add_child(grid)
 	# cells the enemies are aiming at
 	var threat := {}
@@ -701,13 +760,23 @@ func grid_panel(parent: Node, side: String, mode: String) -> void:
 			grid_cell(grid, side, col, r, mode, int(threat.get(Vector2i(col, r), 0)))
 
 
+func _has_event(side: String, i: int) -> bool:
+	for e in combat.events:
+		if e["side"] == side and int(e["i"]) == i:
+			return true
+	return false
+
+
 func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat: int) -> void:
 	var cb = combat
 	var units: Array = cb.heroes if side == "hero" else cb.enemies
 	var u: Dictionary = cb.unit_at(units, c, r)
 	var dead: Dictionary = {}
-	if u.is_empty() and side == "hero":
+	if u.is_empty():
 		dead = cb.unit_at(units, c, r, true)
+		# a defeated enemy stays for one more draw so its last hit can be shown
+		if side == "enemy" and not dead.is_empty() and not _has_event("enemy", int(dead["i"])):
+			dead = {}
 	var pick := false
 	if move_mode and side == "hero":
 		if move_sel < 0:
@@ -721,28 +790,29 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 				pick = cb.can_use(sel, u)
 		elif side == "hero" and mode == "ally":
 			pick = true
-	elif not dead.is_empty() and mode == "dead":
+	elif not dead.is_empty() and mode == "dead" and side == "hero":
 		pick = true
 	var chosen: bool = move_mode and side == "hero" and not u.is_empty() and int(u["i"]) == move_sel
-	var bg := Color(C_PANEL, 0.78)
-	var border := Color(C_LINE, 0.9)
-	var bw := 1
+	# floor tile: a plain checker board, tinted when aimed at or selectable
+	var bg := Color("#2e2822") if (c + r) % 2 == 0 else Color("#383028")
+	var border := Color(0, 0, 0, 0)
+	var bw := 0
 	if threat == 2:
-		bg = Color(0.38, 0.1, 0.08, 0.62)
+		bg = Color("#5a2019")
 		border = CAT["hurt"]
 		bw = 2
 	elif threat == 1:
-		border = Color(CAT["hurt"], 0.55)
+		bg = bg.lerp(Color("#5a2019"), 0.45)
 	if pick:
 		border = C_BRASS
 		bw = 3
-		bg = Color(C_LINE, 0.9)
+		bg = bg.lightened(0.12)
 	if chosen:
 		border = Color.WHITE
 		bw = 3
 	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", sb(bg, border, 8, bw, 5))
-	p.custom_minimum_size = Vector2(126, 126)
+	p.add_theme_stylebox_override("panel", sb(bg, border, 0, bw, 4))
+	p.custom_minimum_size = Vector2(124, 124)
 	parent.add_child(p)
 	cell_ui["%s%d%d" % [side, c, r]] = p
 	if pick or (move_mode and side == "hero"):
@@ -750,45 +820,60 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 		p.gui_input.connect(_cell_input.bind(side, c, r))
 	if pick:
 		var tw := p.create_tween().set_loops()
-		tw.tween_property(p, "self_modulate", Color(1.3, 1.25, 1.0), 0.5)
-		tw.tween_property(p, "self_modulate", Color.WHITE, 0.5)
+		tw.tween_property(p, "self_modulate", Color(1.35, 1.3, 1.05), 0.45)
+		tw.tween_property(p, "self_modulate", Color.WHITE, 0.45)
 	var who: Dictionary = u if not u.is_empty() else dead
 	if who.is_empty():
 		return
-	if side == "hero":
-		hero_cards[int(who["i"])] = p
-	else:
-		enemy_cards[int(who["i"])] = p
-	var v := vb(p, 2)
+	# the unit is its own node so it can lunge and shake without moving the tile
+	var unit := Control.new()
+	unit.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(unit)
+	var v := vb(unit, 2)
+	v.set_anchors_preset(Control.PRESET_FULL_RECT)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	if side == "hero":
+		hero_cards[int(who["i"])] = unit
+	else:
+		enemy_cards[int(who["i"])] = unit
 	var desc := ""
+	var badges := []
 	if side == "hero":
 		var pp: Dictionary = who["p"]
 		var role: String = Data.hero_class(pp)["role"]
-		var top := hb(v, 4, true)
-		top.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		lbl(top, Data.hero_class(pp)["name"], 12, C_TEXT, true)
-		var inc: int = cb.incoming_for(who) if who["hp"] > 0 else 0
-		if inc > 0:
-			var danger: bool = inc >= int(who["hp"]) + int(who["shield"])
-			var il := lbl(top, "-%d" % inc, 12, Color("#1b0d0a") if danger else CAT["hurt"], true)
-			il.add_theme_stylebox_override("normal", sb(CAT["hurt"] if danger else Color(0, 0, 0, 0.4), CAT["hurt"], 6, 1, 4))
+		var nl0 := lbl(v, Data.hero_class(pp)["name"], 12, ROLE_COL[role], true)
+		nl0.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		nl0.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var po = Portrait.new()
-		po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 70.0, bold)
+		po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 66.0, bold)
 		po.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		v.add_child(po)
 		if who["hp"] <= 0:
-			p.modulate = Color(1, 1, 1, 0.4)
+			unit.modulate = Color(0.5, 0.5, 0.5, 0.45)
 		desc = "%s · 체력 %d/%d" % [Data.hero_class(pp)["name"], who["hp"], who["maxhp"]]
 		var hs := _hero_status(who)
 		if hs != "":
 			desc += " · " + hs
+		badges = _hero_badges(who)
+		# this turn's die sits on the corner of the hero
+		if who["hp"] > 0 and who["face"] != null:
+			var md = make_die(unit, cb.shown_face(who), 30.0)
+			md.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			md.dim = who["used"]
+			md.position = Vector2(84, 16)
+		var inc: int = cb.incoming_for(who) if who["hp"] > 0 else 0
+		if inc > 0:
+			var danger: bool = inc >= int(who["hp"]) + int(who["shield"])
+			var il := lbl(unit, "-%d" % inc, 12, Color("#1b0d0a") if danger else CAT["hurt"], true)
+			il.add_theme_stylebox_override("normal", sb(CAT["hurt"] if danger else Color("#1b0d0a"), CAT["hurt"], 2, 2, 4))
+			il.position = Vector2(2, 18)
+			il.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	else:
 		var top2 := hb(v, 3, true)
 		top2.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var it := {"c": "blank", "t": ""}
-		if who["face"] != null:
+		if who["face"] != null and who["hp"] > 0:
 			var f: Dictionary = who["face"]
 			var k: String = f["k"]
 			var val: int = cb.enemy_value(who) if k in ["atk", "all"] else int(f["n"])
@@ -800,12 +885,14 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 			it = cb.enemy_intent(who)
 			if val > 0 and not who["stunned"]:
 				lbl(top2, str(val), 15, CAT[ECAT.get(k, "blank")], true)
-		var nl := lbl(top2, str(who["name"]), 11, C_BRASS if who["boss"] else C_TEXT, true)
+		var nl := lbl(top2, str(who["name"]), 12, C_BRASS if who["boss"] else C_TEXT, true)
 		nl.clip_text = true
-		nl.custom_minimum_size = Vector2(52, 0)
+		nl.custom_minimum_size = Vector2(56, 0)
 		var po2 = Portrait.new()
-		po2.setup("enemy", str(who["key"]), str(who["name"]), CAT["atk"], 68.0, bold, who["boss"])
+		po2.setup("enemy", str(who["key"]), str(who["name"]), CAT["atk"], 66.0, bold, who["boss"])
 		po2.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		if who["stunned"] or who["frozen"]:
+			po2.modulate = Color(0.6, 0.75, 1.0) if who["frozen"] else Color(0.6, 0.6, 0.6)
 		v.add_child(po2)
 		desc = "%s%s · 체력 %d/%d · %s" % [who["name"], " (원거리)" if who["ranged"] else "", who["hp"], who["maxhp"], it["t"]]
 		var es := _enemy_status(who)
@@ -816,12 +903,79 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 			var w: String = str(Data.enemy_faces[f2["k"]]["w"])
 			fl.append(w + (str(f2["n"]) if int(f2["n"]) > 0 else ""))
 		desc += "\n주사위: " + ", ".join(PackedStringArray(fl))
+		badges = _enemy_badges(who)
 	var pips = HpPips.new()
 	pips.setup(int(who["hp"]), int(who["maxhp"]), int(who["shield"]), CAT["heal"] if side == "hero" else CAT["atk"], 100.0, true)
 	pips.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(pips)
+	# status effects as small coloured tags under the health
+	var brow := hb(v, 2, true)
+	brow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	brow.custom_minimum_size = Vector2(0, 16)
+	for bi in mini(badges.size(), 3):
+		var bd: Array = badges[bi]
+		var bcol: Color = CAT[bd[1]]
+		var bl := lbl(brow, str(bd[0]), 12, Color("#14110f"), true)
+		bl.add_theme_stylebox_override("normal", sb(bcol, bcol.darkened(0.4), 2, 1, 3))
+		bl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if badges.size() > 3:
+		lbl(brow, "+%d" % (badges.size() - 3), 12, C_MUTED, true)
 	p.mouse_entered.connect(_info_show.bind(desc))
 	p.mouse_exited.connect(_info_show.bind(""))
+
+
+func _hero_badges(h: Dictionary) -> Array:
+	var st := []
+	if h["hp"] <= 0:
+		return st
+	if h["poison"] > 0:
+		st.append(["독%d" % h["poison"], "poison"])
+	if h["hexed"]:
+		st.append(["저주", "trick"])
+	if h["taunt"]:
+		st.append(["도발", "def"])
+	if h["aimed"]:
+		st.append(["조준×3", "trick"])
+	if h["aim_pending"]:
+		st.append(["조준중", "blank"])
+	if h["heat"] > 0:
+		st.append(["열%d" % h["heat"], "atk"])
+	if h["streak"] > 0:
+		st.append(["기세%d" % h["streak"], "atk"])
+	if h["thorns"] > 0:
+		st.append(["가시%d" % h["thorns"], "def"])
+	if h["dodge"]:
+		st.append(["연막", "blank"])
+	if h["guard"]:
+		st.append(["수호", "heal"])
+	if h["link"] >= 0:
+		st.append(["연결", "heal"])
+	if h["seed"] > 0:
+		st.append(["씨앗", "heal"])
+	if h["double"]:
+		st.append(["두배", "trick"])
+	if h["ward"]:
+		st.append(["정화", "heal"])
+	if h["keep_shield"]:
+		st.append(["얼음", "def"])
+	return st
+
+
+func _enemy_badges(e: Dictionary) -> Array:
+	var st := []
+	if e["hp"] <= 0:
+		return st
+	if e["stunned"]:
+		st.append(["빙결" if e["frozen"] else "기절", "def" if e["frozen"] else "trick"])
+	elif e["frozen"]:
+		st.append(["빙결", "def"])
+	if e["poison"] > 0:
+		st.append(["독%d" % e["poison"], "poison"])
+	if e["weak"] > 0:
+		st.append(["약화%d" % e["weak"], "trick"])
+	if e["mark"] > 0:
+		st.append(["표식", "atk"])
+	return st
 
 
 func _cell_input(event: InputEvent, side: String, c: int, r: int) -> void:
@@ -904,7 +1058,7 @@ func _enemy_status(e: Dictionary) -> String:
 
 func hero_strip(parent: Node, h: Dictionary) -> void:
 	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", sb(Color(C_PANEL, 0.9), C_LINE, 8, 1, 8))
+	p.add_theme_stylebox_override("panel", sb(C_PANEL2, ROLE_COL[Data.hero_class(h["p"])["role"]].darkened(0.45), 2, 2, 8))
 	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if h["hp"] <= 0:
 		p.modulate = Color(1, 1, 1, 0.4)
@@ -1033,12 +1187,74 @@ func die_widget(parent: Node, face: Dictionary, locked: bool, selected: bool, us
 	return d
 
 
+func _float_text(at: Vector2, text: String, col: Color, size := 24, delay := 0.0, plate := false) -> void:
+	var l := Label.new()
+	l.text = text
+	var fs := pf(size, true)
+	l.add_theme_font_override("font", fs[0])
+	l.add_theme_font_size_override("font_size", fs[1])
+	l.add_theme_color_override("font_color", col)
+	if plate:
+		l.add_theme_stylebox_override("normal", sb(Color("#100d0b"), col, 2, 2, 6))
+	else:
+		l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		l.add_theme_constant_override("outline_size", 6)
+	fx.add_child(l)
+	l.reset_size()
+	l.global_position = at - Vector2(l.size.x * 0.5, 0)
+	var tw := l.create_tween().set_parallel(true)
+	tw.tween_property(l, "position:y", l.position.y - 30, 1.0).set_delay(delay)
+	tw.tween_property(l, "modulate:a", 0.0, 0.5).set_delay(delay + 0.6)
+	tw.chain().tween_callback(l.queue_free)
+
+
+## Shows who is acting: a name plate over the unit and a short lunge at the other side.
+func _announce(side: String, i: int, text: String, col: Color) -> void:
+	if not anim:
+		return
+	var card = (hero_cards if side == "hero" else enemy_cards).get(i)
+	if card == null or not is_instance_valid(card):
+		return
+	var r: Rect2 = card.get_global_rect()
+	_float_text(Vector2(r.get_center().x, r.position.y - 22), text, col, 15, 0.0, true)
+	var dir := 1.0 if side == "hero" else -1.0
+	var base: Vector2 = card.position
+	var tw: Tween = card.create_tween()
+	tw.tween_property(card, "position:x", base.x - dir * 6, 0.08)
+	tw.tween_property(card, "position:x", base.x + dir * 30, 0.09).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(card, "position:x", base.x, 0.16)
+	await get_tree().create_timer(0.3).timeout
+
+
+func _react(card: Control, kind: String, fade: bool) -> void:
+	var base: Vector2 = card.position
+	var keep: Color = card.modulate
+	var tw: Tween = card.create_tween()
+	if kind == "hurt":
+		card.modulate = Color(2.4, 0.6, 0.5, keep.a)
+		for dx in [10, -9, 7, -5, 3, 0]:
+			tw.tween_property(card, "position:x", base.x + dx, 0.04)
+	elif kind == "def":
+		card.modulate = Color(0.7, 1.2, 2.0, keep.a)
+		tw.tween_property(card, "position:x", base.x + 3, 0.05)
+		tw.tween_property(card, "position:x", base.x, 0.05)
+	else:
+		card.modulate = Color(0.8, 1.9, 0.8, keep.a)
+		tw.tween_property(card, "position:y", base.y - 6, 0.1)
+		tw.tween_property(card, "position:y", base.y, 0.12)
+	var end := keep
+	if fade:
+		end = Color(1, 1, 1, 0)
+	card.create_tween().tween_property(card, "modulate", end, 0.6 if fade else 0.35).set_delay(0.08)
+
+
 func _play_events() -> void:
 	if combat == null:
 		return
 	var list: Array = combat.events.duplicate()
 	combat.events.clear()
 	var stack := {}
+	var reacts := {}
 	for e in list:
 		var card = null
 		if e["side"] == "enemy":
@@ -1050,20 +1266,42 @@ func _play_events() -> void:
 		var key: String = str(e["side"]) + str(e["i"])
 		var n: int = stack.get(key, 0)
 		stack[key] = n + 1
-		var l := Label.new()
-		l.text = e["text"]
-		l.add_theme_font_override("font", bold)
-		l.add_theme_font_size_override("font_size", 24)
-		l.add_theme_color_override("font_color", CAT.get(e["color"], C_TEXT))
-		l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
-		l.add_theme_constant_override("outline_size", 6)
-		fx.add_child(l)
 		var r: Rect2 = card.get_global_rect()
-		l.global_position = Vector2(r.position.x + r.size.x - 100, r.position.y + 4 + n * 26)
-		var tw := l.create_tween().set_parallel(true)
-		tw.tween_property(l, "position:y", l.position.y - 36, 0.9).set_delay(n * 0.08)
-		tw.tween_property(l, "modulate:a", 0.0, 0.9).set_delay(n * 0.08)
-		tw.chain().tween_callback(l.queue_free)
+		_float_text(Vector2(r.get_center().x, r.position.y + 20 + n * 26), str(e["text"]), CAT.get(e["color"], C_TEXT), 24, n * 0.08)
+		var kind := ""
+		var txt: String = str(e["text"])
+		if e["color"] == "hurt" or (e["color"] == "poison" and txt.contains("-")):
+			kind = "hurt"
+		elif e["color"] == "def":
+			kind = "def"
+		elif e["color"] == "heal":
+			kind = "heal"
+		if kind != "" and (not reacts.has(key) or kind == "hurt"):
+			reacts[key] = [card, kind, e["side"], int(e["i"])]
+	if not anim:
+		return
+	for key in reacts:
+		var it: Array = reacts[key]
+		var gone: bool = it[2] == "enemy" and int(combat.enemies[it[3]]["hp"]) <= 0
+		_react(it[0], it[1], gone)
+
+
+func _act_die(i: int, t) -> void:
+	var c = combat
+	if not c.can_use(i, t):
+		message = "그 대상에는 쓸 수 없음" if t != null else "지금은 쓸 수 없는 면"
+		sel = -1
+		after_action()
+		return
+	busy = true
+	var face: Dictionary = c.shown_face(c.heroes[i])
+	await _announce("hero", i, Data.face_title(face), CAT[Data.face_cat(face)])
+	if combat != c:
+		return
+	c.use_die(i, t)
+	busy = false
+	sel = -1
+	after_action()
 
 
 func on_die(i: int) -> void:
@@ -1082,10 +1320,7 @@ func on_die(i: int) -> void:
 	armed_spell = ""
 	var t: String = c.target_kind_of(h)
 	if t == "none":
-		if not c.use_die(i, null):
-			message = "지금은 쓸 수 없는 면"
-		sel = -1
-		after_action()
+		_act_die(i, null)
 		return
 	if sel == i:
 		sel = -1
@@ -1116,16 +1351,13 @@ func on_spell(s: String) -> void:
 func pick_target(t: Dictionary) -> void:
 	if busy or combat == null:
 		return
-	var ok := false
 	if armed_spell != "":
-		ok = combat.cast(armed_spell, t)
+		if not combat.cast(armed_spell, t):
+			message = "그 대상에는 쓸 수 없음"
 		armed_spell = ""
+		after_action()
 	elif sel >= 0:
-		ok = combat.use_die(sel, t)
-		sel = -1
-	if not ok:
-		message = "그 대상에는 쓸 수 없음"
-	after_action()
+		_act_die(sel, t)
 
 
 func on_undo() -> void:
@@ -1159,12 +1391,36 @@ func on_end_turn() -> void:
 		return
 	sel = -1
 	armed_spell = ""
+	move_mode = false
+	var c = combat
+	if not anim:
+		c.end_turn()
+		after_action()
+		return
 	busy = true
 	refresh()
 	await get_tree().create_timer(0.25).timeout
-	if combat == null:
+	if combat != c:
 		return
-	combat.end_turn()
+	# enemies act one at a time so each attack and its result can be followed
+	if c.end_turn_begin():
+		refresh()
+		for e in c.enemies:
+			if not c.enemy_acts(e):
+				continue
+			await get_tree().process_frame
+			var it: Dictionary = c.enemy_intent(e)
+			await _announce("enemy", int(e["i"]), str(it["t"]), CAT.get(str(it["c"]), C_TEXT))
+			if combat != c:
+				return
+			c.enemy_step(e)
+			refresh()
+			await get_tree().create_timer(0.5).timeout
+			if combat != c:
+				return
+			if c.result != "":
+				break
+		c.end_turn_finish()
 	busy = false
 	after_action()
 

@@ -54,13 +54,13 @@ func _box(rect: Rect2, fill: Color, border: Color, radius: int, bw: int) -> void
 	s.border_color = border
 	s.set_border_width_all(bw)
 	s.set_corner_radius_all(radius)
-	s.anti_aliasing = true
+	s.anti_aliasing = false
 	draw_style_box(s, rect)
 
 
 func _draw() -> void:
 	var s: float = minf(size.x, size.y)
-	var rad := int(s * 0.16)
+	var rad := 3 if s >= 40.0 else 2
 	var depth: float = maxf(2.0, s * 0.07)
 	var face_col := IVORY if kind != "blank" else Color("#b9bdb4")
 	var edge := col
@@ -95,11 +95,8 @@ func _draw() -> void:
 			var fs: int = maxi(8, int(s * 0.2))
 			draw_string(font, Vector2(s - bw - fs * 1.5, pad + fs), str(n), HORIZONTAL_ALIGNMENT_RIGHT, fs * 1.4, fs, icol)
 	if has_label and font != null:
-		var fs2: int = maxi(8, int(s * 0.15))
-		var w: float = font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x
-		if w > s - 8.0:
-			fs2 = maxi(8, int(fs2 * (s - 8.0) / w))
+		var fs2: int = 12 if s < 150.0 else 24
 		draw_string(font, Vector2(0, h - s * 0.085), label, HORIZONTAL_ALIGNMENT_CENTER, s, fs2, INK if not dim else Color("#151210"))
 	if locked and show_label and font != null:
-		var fs3: int = maxi(8, int(s * 0.12))
+		var fs3: int = 12
 		draw_string(font, Vector2(bw + 4, bw + fs3 + 1), "고정", HORIZONTAL_ALIGNMENT_LEFT, -1, fs3, BRASS.darkened(0.35))

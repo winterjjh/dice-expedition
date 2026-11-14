@@ -1095,9 +1095,11 @@ func _check_end() -> void:
 
 # ---------------- enemy phase ----------------
 
-func end_turn() -> void:
+## The enemy turn is split into steps so the UI can show each action in order;
+## end_turn() runs them all at once for the headless test.
+func end_turn_begin() -> bool:
 	if result != "":
-		return
+		return false
 	undo_stack = []
 	if phase == "roll":
 		confirm()
@@ -1110,53 +1112,69 @@ func end_turn() -> void:
 			if e["hp"] <= 0:
 				log_add("%s 독으로 쓰러짐" % e["name"])
 	_check_end()
+	return result == ""
+
+
+func enemy_acts(e: Dictionary) -> bool:
+	return result == "" and e["hp"] > 0 and not e["stunned"] and e["face"] != null
+
+
+func enemy_step(e: Dictionary) -> void:
+	if not enemy_acts(e):
+		return
+	var f: Dictionary = e["face"]
+	var n := enemy_value(e)
+	var vs := enemy_victims(e)
+	if f["k"] in ["atk", "all", "poison", "hex"] and vs.is_empty():
+		ev("enemy", e["i"], "빗나감", "blank")
+		log_add("%s의 행동이 빈 칸에 빗나감" % e["name"])
+	match f["k"]:
+		"atk", "all":
+			for t in vs:
+				hurt_hero(t, n, e)
+				log_add("%s의 %s %d → %s" % [e["name"], "범위 공격" if f["k"] == "all" else "공격", n, hero_label(t)])
+		"poison":
+			for t in vs:
+				if t["ward"]:
+					ev("hero", t["i"], "정화됨", "heal")
+				else:
+					t["poison"] += n
+					ev("hero", t["i"], "독 %d" % n, "poison")
+					log_add("%s의 독 → %s" % [e["name"], hero_label(t)])
+		"hex":
+			for t in vs:
+				if t["ward"]:
+					ev("hero", t["i"], "정화됨", "heal")
+				else:
+					t["hexed"] = true
+					ev("hero", t["i"], "저주", "trick")
+					log_add("%s의 저주 → %s (다음 턴 빈 면)" % [e["name"], hero_label(t)])
+		"heal":
+			var t = enemies[e["target"]] if e["target"] >= 0 else e
+			if t["hp"] <= 0:
+				t = e
+			var before: int = t["hp"]
+			t["hp"] = min(int(t["maxhp"]), before + n)
+			ev("enemy", t["i"], "+%d" % (t["hp"] - before), "heal")
+			log_add("%s의 회복" % e["name"])
+	_check_end()
+
+
+func end_turn_finish() -> void:
 	if result != "":
 		return
-	for e in enemies:
-		if e["hp"] <= 0:
-			continue
-		if e["stunned"]:
-			continue
-		var f: Dictionary = e["face"]
-		var n := enemy_value(e)
-		var vs := enemy_victims(e)
-		if f["k"] in ["atk", "all", "poison", "hex"] and vs.is_empty():
-			ev("enemy", e["i"], "빗나감", "blank")
-			log_add("%s의 행동이 빈 칸에 빗나감" % e["name"])
-		match f["k"]:
-			"atk", "all":
-				for t in vs:
-					hurt_hero(t, n, e)
-					log_add("%s의 %s %d → %s" % [e["name"], "범위 공격" if f["k"] == "all" else "공격", n, hero_label(t)])
-			"poison":
-				for t in vs:
-					if t["ward"]:
-						ev("hero", t["i"], "정화됨", "heal")
-					else:
-						t["poison"] += n
-						ev("hero", t["i"], "독 %d" % n, "poison")
-						log_add("%s의 독 → %s" % [e["name"], hero_label(t)])
-			"hex":
-				for t in vs:
-					if t["ward"]:
-						ev("hero", t["i"], "정화됨", "heal")
-					else:
-						t["hexed"] = true
-						ev("hero", t["i"], "저주", "trick")
-						log_add("%s의 저주 → %s (다음 턴 빈 면)" % [e["name"], hero_label(t)])
-			"heal":
-				var t = enemies[e["target"]] if e["target"] >= 0 else e
-				if t["hp"] <= 0:
-					t = e
-				var before: int = t["hp"]
-				t["hp"] = min(int(t["maxhp"]), before + n)
-				ev("enemy", t["i"], "+%d" % (t["hp"] - before), "heal")
-				log_add("%s의 회복" % e["name"])
-		_check_end()
-		if result != "":
-			return
 	_enemy_shuffle()
 	start_turn()
+
+
+func end_turn() -> void:
+	if not end_turn_begin():
+		return
+	for e in enemies:
+		enemy_step(e)
+		if result != "":
+			return
+	end_turn_finish()
 
 
 func _enemy_shuffle() -> void:
