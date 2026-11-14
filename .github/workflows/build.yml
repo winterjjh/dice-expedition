@@ -49,7 +49,7 @@ jobs:
         run: |
           mkdir -p build/windows
           godot --headless --path . --export-release "Windows Desktop" build/windows/dice-expedition.exe
-          cp fonts/OFL.txt build/windows/FONT-LICENSE.txt
+          cp fonts/Galmuri-OFL.md build/windows/FONT-LICENSE.txt
           ls -la build/windows
 
       - name: Export Web

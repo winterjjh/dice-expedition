@@ -59,7 +59,7 @@ godot --headless --path . res://tests/ui_smoke.tscn
 
 ## 사용 자원
 
-- 글꼴: IBM Plex Sans KR, SIL Open Font License 1.1 (`fonts/OFL.txt`)
+- 글꼴: Galmuri, SIL Open Font License 1.1 (`fonts/Galmuri-OFL.md`)
 - 그 밖의 그래픽은 모두 코드로 그린 도형과 글자
 
 ## 그림 넣는 방법
