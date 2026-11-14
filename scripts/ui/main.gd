@@ -830,7 +830,7 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 	unit.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(unit)
 	var v := vb(unit, 2)
-	v.set_anchors_preset(Control.PRESET_FULL_RECT)
+	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	if side == "hero":
@@ -1157,7 +1157,7 @@ func tray_slot(parent: Node, h: Dictionary) -> void:
 		ph.custom_minimum_size = Vector2(TRAY_DIE, TRAY_DIE)
 		v.add_child(ph)
 	var role: String = Data.hero_class(h["p"])["role"]
-	var nl := lbl(v, combat.hero_label(h), 14, ROLE_COL[role] if h["hp"] > 0 else Color(C_MUTED, 0.4), true)
+	var nl := lbl(v, combat.hero_label(h), 12, ROLE_COL[role] if h["hp"] > 0 else Color(C_MUTED, 0.4), true)
 	nl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 
