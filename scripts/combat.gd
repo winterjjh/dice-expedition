@@ -693,7 +693,7 @@ func use_die(i: int, target = null) -> bool:
 	var who := hero_label(h)
 	h["used"] = true
 	match k:
-		"atk":
+		"atk", "shot":
 			hit_enemy(target, n, h)
 			_glove(h, target)
 			log_add("%s · %s %d → %s" % [who, D.face_name(f), n, target["name"]])

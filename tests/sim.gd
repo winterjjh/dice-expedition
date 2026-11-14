@@ -44,13 +44,11 @@ func _ready() -> void:
 				reward(run, rng, kind == "elite")
 			if not alive:
 				break
-			if act == 0:
+			if act < 2:
 				for p in run["party"]:
 					var promo: Array = Data.hero_class(p)["promo"]
-					p["cls"] = promo[rng.randi_range(0, promo.size() - 1)]
-			elif act == 1:
-				for p in run["party"]:
-					p["mastered"] = true
+					if not promo.is_empty():
+						p["cls"] = promo[rng.randi_range(0, promo.size() - 1)]
 		if alive:
 			wins += 1
 	# save/load round trip

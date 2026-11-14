@@ -68,10 +68,10 @@ func _ready() -> void:
 	await step("boss")
 	main.show_promotion()
 	await step("promotion")
-	main._random_party()
+	main._apply_promotion()
 	Game.run["act"] = 1
 	main.show_promotion()
-	await step("mastery")
+	await step("promotion 2")
 	main.show_end(true, "")
 	await step("end win")
 	main.show_end(false, "녹슨 기사")

@@ -205,6 +205,7 @@ static func draw(ci: CanvasItem, kind: String, r: Rect2, col: Color, bg: Color) 
 	var g := G.new(ci, r, col, bg)
 	match kind:
 		"atk": g.sword()
+		"shot": g.arrow()
 		"multi":
 			g.sub(0.0, 0.22, 0.78).arrow()
 			g.sub(0.22, 0.0, 0.78).arrow()

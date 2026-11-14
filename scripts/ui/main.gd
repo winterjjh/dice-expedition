@@ -416,7 +416,7 @@ func show_rules() -> void:
 		"스킬 조합 · 얼린 적에게 산산조각, 독 걸린 적에게 급소 찌르기, 표식 찍은 적에게 집중 공격, 앙코르로 동료 스킬 한 번 더 등. 면에 마우스를 올리면 설명 표시.",
 		"각인 · 같은 면을 런 동안 여러 번 쓰면(5번, 12번) 그 면이 손에 익어 영구히 강해짐.",
 		"마나와 주문 · 마나는 전투 내내 유지. 마법·지원 직업의 고유 주문에 사용.",
-		"성장 · 전투 보상으로 면 강화나 장비. 1막 보스 뒤 상위 직업으로 승급, 2막 보스 뒤 숙련. 영웅은 전투가 끝나면 모두 회복.",
+		"성장 · 전투 보상으로 면 강화나 장비. 막을 깰 때마다 전직해 새 스킬이 열림. 영웅은 전투가 끝나면 모두 회복.",
 		"저장 · 지도 화면으로 돌아올 때마다 자동 저장.",
 	]
 	for line in lines:
@@ -970,13 +970,20 @@ func _update_links() -> void:
 
 
 func _hero_art_key(cls: String) -> String:
-	# promoted classes borrow the base class picture until they get their own
-	if ResourceLoader.exists("res://art/hero/%s.png" % cls):
-		return cls
-	for k in Data.classes:
-		if cls in Data.classes[k]["promo"]:
-			return str(k)
-	return cls
+	# promoted classes borrow the earlier class picture until they get their own
+	var cur := cls
+	for step in 3:
+		if ResourceLoader.exists("res://art/hero/%s.png" % cur):
+			return cur
+		var parent := ""
+		for k in Data.classes:
+			if cur in Data.classes[k]["promo"]:
+				parent = str(k)
+				break
+		if parent == "":
+			break
+		cur = parent
+	return cur if ResourceLoader.exists("res://art/hero/%s.png" % cur) else cls
 
 
 func tray_slot(parent: Node, h: Dictionary) -> void:
@@ -1282,24 +1289,36 @@ func _equip(p: Dictionary, id: String, done: Callable) -> void:
 
 func show_promotion() -> void:
 	promo_choice = {}
-	if int(Game.run["act"]) == 0:
-		_draw_promotion()
-	else:
-		_draw_mastery()
+	var party: Array = Game.run["party"]
+	for hi in party.size():
+		var opts: Array = Data.hero_class(party[hi])["promo"]
+		if opts.size() == 1:
+			promo_choice[hi] = str(opts[0])
+	_draw_promotion()
 
 
 func _draw_promotion() -> void:
 	clear_screen()
 	top_bar()
+	var act := int(Game.run["act"])
 	var area := scroll_area(root)
-	lbl(area, "1막 돌파 · 승급", 26, C_BRASS, true)
-	lbl(area, "영웅마다 상위 직업 하나 선택. 면 강화와 각인은 같은 자리에 그대로 이어짐.", 16, C_MUTED, false, true)
 	var party: Array = Game.run["party"]
+	var need := 0
+	for p in party:
+		if not Data.hero_class(p)["promo"].is_empty():
+			need += 1
+	btn(area, "전직하고 %d막으로" % (act + 2), _apply_promotion, true, promo_choice.size() < need)
+	lbl(area, "%d막 돌파 · 전직" % (act + 1), 26, C_BRASS, true)
+	var note := "모든 영웅이 다음 단계 직업으로 전직. 빈 면이 스킬로 채워지고 새 스킬이 열림." if act == 0 else "영웅마다 두 갈래 중 하나 선택."
+	lbl(area, note + " 면 강화와 각인은 같은 자리에 그대로 이어짐.", 16, C_MUTED, false, true)
 	for hi in party.size():
 		var p: Dictionary = party[hi]
+		var opts: Array = Data.hero_class(p)["promo"]
+		if opts.is_empty():
+			continue
 		lbl(area, Data.hero_class(p)["name"], 15, C_MUTED, true)
 		var row := hb(area, 10)
-		for k in Data.hero_class(p)["promo"]:
+		for k in opts:
 			var cls: Dictionary = Data.classes[k]
 			var col := vb(row, 4)
 			col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1307,7 +1326,6 @@ func _draw_promotion() -> void:
 			var tmp: Dictionary = p.duplicate(true)
 			tmp["cls"] = k
 			face_row(col, tmp)
-	btn(area, "승급하고 2막으로", _apply_promotion, true, promo_choice.size() < party.size())
 
 
 func _pick_promo(hi: int, k: String) -> void:
@@ -1318,29 +1336,8 @@ func _pick_promo(hi: int, k: String) -> void:
 func _apply_promotion() -> void:
 	var party: Array = Game.run["party"]
 	for hi in party.size():
-		party[hi]["cls"] = promo_choice[hi]
-	Game.next_act()
-	show_map()
-
-
-func _draw_mastery() -> void:
-	clear_screen()
-	top_bar()
-	var area := scroll_area(root)
-	lbl(area, "2막 돌파 · 숙련", 26, C_BRASS, true)
-	lbl(area, "모든 영웅이 숙련 단계에 오름. 최대 체력 +2, 위력 수치가 있는 스킬 전부 +1.", 16, C_MUTED, false, true)
-	for p in Game.run["party"]:
-		var tmp: Dictionary = p.duplicate(true)
-		tmp["mastered"] = true
-		var pv := panel(area)
-		lbl(pv, Data.hero_name(tmp), 19, C_TEXT, true)
-		face_row(pv, tmp)
-	btn(area, "3막으로", _apply_mastery, true)
-
-
-func _apply_mastery() -> void:
-	for p in Game.run["party"]:
-		p["mastered"] = true
+		if promo_choice.has(hi):
+			party[hi]["cls"] = promo_choice[hi]
 	Game.next_act()
 	show_map()
 

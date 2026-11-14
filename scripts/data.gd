@@ -2,7 +2,7 @@ extends Node
 ## Loads every balance table from res://data/*.json and holds hero-die helpers.
 ## Used as the autoload "Data"; tests create it with load(...).new().
 
-const ATK_FAM := ["atk", "multi", "all", "pierce", "momentum", "guardhit", "bash", "frenzy", "duel", "mark", "suppress", "snipe", "backstab", "pilfer", "ember", "shatter"]
+const ATK_FAM := ["atk", "shot", "multi", "all", "pierce", "momentum", "guardhit", "bash", "frenzy", "duel", "mark", "suppress", "snipe", "backstab", "pilfer", "ember", "shatter"]
 const DEF_FAM := ["shield", "shieldadj", "taunt", "guardhit", "thorns", "wall", "firewall", "icearmor"]
 const HEAL_FAM := ["heal", "healall", "seed", "cleanse"]
 const NO_NUMBER := ["steal", "stun", "freeze", "rewind", "link", "bloodprice", "aim", "echo", "smoke", "combust", "guardian", "encore", "discord", "retune", "blank"]
