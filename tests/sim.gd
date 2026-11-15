@@ -2,7 +2,7 @@ extends Node
 ## Headless balance and sanity check. Run:
 ##   godot --headless --path . res://tests/sim.tscn
 ## Validates the data tables, then plays many full runs with a simple bot
-## (fights only: normal x4, elite x1, boss per act, with rewards and promotions)
+## (the same twenty fights and alternating rewards as the game)
 ## and prints win rates. Prints "SIM OK" at the end when nothing broke.
 
 const Combat = preload("res://scripts/combat.gd")
@@ -17,7 +17,7 @@ func _ready() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	var wins := 0
-	var deaths := {0: 0, 1: 0, 2: 0}
+	var deaths := {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
 	var stalls := 0
 	var face_use := {}
 	for r in RUNS:
@@ -27,28 +27,43 @@ func _ready() -> void:
 		Game.new_run(keys, Data)
 		var run: Dictionary = Game.run
 		var alive := true
-		for act in 3:
+		for si in Game.stage_count():
+			var st: Dictionary = Game.stage_info(si)
+			var act := int(st["act"])
+			var kind: String = st["kind"]
 			run["act"] = act
-			var plan := ["fight", "fight", "fight", "elite", "fight", "boss"]
-			for kind in plan:
-				var enc: Dictionary = Data.encounters[act]
-				var group: Array = enc["boss"] if kind == "boss" else enc["elite" if kind == "elite" else "normal"][rng.randi_range(0, enc["elite" if kind == "elite" else "normal"].size() - 1)]
-				var res := play_fight(run, kind, group, face_use)
-				if res == "stall":
-					stalls += 1
-					res = "lose"
-				if res != "win":
-					deaths[act] += 1
-					alive = false
-					break
-				reward(run, rng, kind == "elite")
-			if not alive:
+			var enc: Dictionary = Data.encounters[act]
+			var group: Array = st.get("group", [])
+			if group.is_empty():
+				if kind == "boss":
+					group = enc["boss"]
+				else:
+					var pool: Array = enc["elite" if kind == "elite" else "normal"]
+					group = pool[rng.randi_range(0, pool.size() - 1)]
+			var res := play_fight(run, kind, group, face_use)
+			if res == "stall":
+				stalls += 1
+				res = "lose"
+			if res != "win":
+				deaths[si / 4] += 1
+				alive = false
 				break
-			if act < 2:
+			var cleared := si + 1
+			if cleared >= Game.stage_count():
+				break
+			if Game.reward_kind(cleared) == "item":
+				give_item(run, rng)
+			else:
+				var can := []
 				for p in run["party"]:
-					var promo: Array = Data.hero_class(p)["promo"]
-					if not promo.is_empty():
-						p["cls"] = promo[rng.randi_range(0, promo.size() - 1)]
+					if not Data.hero_class(p)["promo"].is_empty():
+						can.append(p)
+				if can.is_empty():
+					upgrade_face(run, rng)
+				else:
+					var hp: Dictionary = can[rng.randi_range(0, can.size() - 1)]
+					var promo: Array = Data.hero_class(hp)["promo"]
+					hp["cls"] = promo[rng.randi_range(0, promo.size() - 1)]
 		if alive:
 			wins += 1
 	# save/load round trip
@@ -57,7 +72,7 @@ func _ready() -> void:
 	if not Game.load_saved(Data):
 		errors.append("저장 불러오기 실패")
 	Game.clear_save()
-	print("SIM runs=%d wins=%d (%.0f%%) deaths_by_act=%s stalls=%d" % [RUNS, wins, 100.0 * wins / RUNS, str(deaths), stalls])
+	print("SIM runs=%d wins=%d (%.0f%%) deaths_by_boss_block=%s stalls=%d" % [RUNS, wins, 100.0 * wins / RUNS, str(deaths), stalls])
 	var used := face_use.keys()
 	used.sort()
 	print("faces used: ", used)
@@ -97,23 +112,22 @@ func validate() -> void:
 					errors.append("조우에 없는 적 %s" % k)
 
 
-func reward(run: Dictionary, rng: RandomNumberGenerator, elite: bool) -> void:
-	var times := 2 if elite else 1
-	for t in times:
-		if rng.randf() < 0.65:
-			var party: Array = run["party"]
-			for attempt in 12:
-				var p: Dictionary = party[rng.randi_range(0, party.size() - 1)]
-				var i := rng.randi_range(0, 5)
-				if Data.can_upgrade(p, i):
-					p["bonus"][i] = int(p["bonus"][i]) + 1
-					break
-		else:
-			var keys: Array = Data.items.keys()
-			var p: Dictionary = run["party"][rng.randi_range(0, 3)]
-			if p["items"].size() >= 2:
-				p["items"].pop_front()
-			p["items"].append(keys[rng.randi_range(0, keys.size() - 1)])
+func upgrade_face(run: Dictionary, rng: RandomNumberGenerator) -> void:
+	var party: Array = run["party"]
+	for attempt in 12:
+		var p: Dictionary = party[rng.randi_range(0, party.size() - 1)]
+		var i := rng.randi_range(0, 5)
+		if Data.can_upgrade(p, i):
+			p["bonus"][i] = int(p["bonus"][i]) + 1
+			break
+
+
+func give_item(run: Dictionary, rng: RandomNumberGenerator) -> void:
+	var keys: Array = Data.items.keys()
+	var p: Dictionary = run["party"][rng.randi_range(0, 3)]
+	if p["items"].size() >= 2:
+		p["items"].pop_front()
+	p["items"].append(keys[rng.randi_range(0, keys.size() - 1)])
 
 
 var undo_checks := 0

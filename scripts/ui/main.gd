@@ -3,7 +3,6 @@ extends Control
 ## so balance lives in res://data/*.json and layout lives here.
 
 const Combat = preload("res://scripts/combat.gd")
-const MapView = preload("res://scripts/ui/map_view.gd")
 const DieFace = preload("res://scripts/ui/die_face.gd")
 const HpPips = preload("res://scripts/ui/hp_pips.gd")
 const Portrait = preload("res://scripts/ui/portrait.gd")
@@ -150,10 +149,14 @@ func _ready() -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	# test shortcut: F9 starts a fight with a random party, F10 a boss fight
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_F9, KEY_F10]:
-		show_party_select()
 		_random_party()
-		_start_run()
-		start_fight("boss" if event.keycode == KEY_F10 else "fight")
+		var keys := []
+		for role in Data.ROLES:
+			keys.append(party_choice[role["key"]])
+		Game.new_run(keys, Data)
+		if event.keycode == KEY_F10:
+			Game.run["stage"] = 7
+		begin_stage()
 
 
 # =============== theme & widget helpers ===============
@@ -424,15 +427,41 @@ func hp_bar(parent: Node, value: int, maxv: int, col: Color) -> ProgressBar:
 
 
 func top_bar() -> void:
-	var h := hb(root, 16)
-	lbl(h, "주사위 원정대", 26, C_BRASS, true)
-	spacer(h)
+	var h := hb(root, 12)
+	lbl(h, "주사위 원정대", 24, C_BRASS, true)
 	if Game.run != null:
-		lbl(h, "%d막 · %d층" % [int(Game.run["act"]) + 1, int(Game.run["floors"])], 17, C_TEXT)
-		var gh := hb(h, 4)
-		ui_icon(gh, "coin", 24.0)
-		lbl(gh, "골드 %d" % int(Game.run["gold"]), 17, C_BRASS, true)
+		# the whole run at a glance: twenty fights, bosses marked, the current one lit
+		var cur := int(Game.run["stage"])
+		var strip := hb(h, 3)
+		strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		strip.alignment = BoxContainer.ALIGNMENT_CENTER
+		for i in Game.stage_count():
+			var boss: bool = Game.is_boss_stage(i)
+			var box := PanelContainer.new()
+			var fill := Color("#1c1838")
+			var edge := C_LINE
+			if i < cur:
+				fill = C_BRASS.darkened(0.25)
+				edge = C_BRASS
+			elif boss:
+				fill = Color("#4d1846")
+				edge = C_DANGER
+			var st := sb(fill, edge, 0, 2, 0)
+			if i == cur:
+				st = glow(sb(Color("#123c4a"), C_GLOW, 0, 2, 0), C_GLOW, 8)
+			st.content_margin_top = 0
+			st.content_margin_bottom = 0
+			box.add_theme_stylebox_override("panel", st)
+			box.custom_minimum_size = Vector2(34 if boss else 26, 26)
+			box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			box.tooltip_text = "%d번째 전투%s" % [i + 1, " · 보스" if boss else ""]
+			strip.add_child(box)
+			var num := lbl(box, "왕" if boss else str(i + 1), 12, Color("#14110f") if i < cur else (C_TEXT if i == cur else C_MUTED), true)
+			num.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			num.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		btn(h, "원정대 보기", show_party_overlay)
+	else:
+		spacer(h)
 
 
 func open_overlay(title: String) -> VBoxContainer:
@@ -468,9 +497,7 @@ func close_overlay() -> void:
 
 var party_choice := {}
 var promo_choice := {}
-var shop_stock := []
-var shop_face := {}
-var cur_event := {}
+var offer := []   # the choices shown on the current reward screen
 
 
 func show_title() -> void:
@@ -487,7 +514,7 @@ func show_title() -> void:
 		die_widget(dice, f, false, false, false, Callable())
 	var t := lbl(v, "주사위 원정대", 54, C_BRASS, true)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var s := lbl(v, "영웅 넷이 저마다 다른 직업 주사위를 굴려 싸우는 원정.\n세 개의 막을 지나 운명의 도박사를 쓰러뜨리면 승리.", 18, C_TEXT)
+	var s := lbl(v, "영웅 넷이 저마다 다른 직업 주사위를 굴려 싸우는 원정.\n스무 번의 전투를 이어서 이기면 승리. 한 번 지면 처음부터.", 18, C_TEXT)
 	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for l in [t, s]:
 		l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
@@ -497,22 +524,24 @@ func show_title() -> void:
 	if saved != "":
 		btn(row, "이어하기 · " + saved, continue_run, true)
 	btn(row, "새 원정", _new_game, saved == "")
+	btn(row, "원정대 고르기", show_party_select)
 	btn(row, "규칙 보기", show_rules)
 
 
 func _new_game() -> void:
 	Game.clear_save()
-	show_party_select()
+	Game.new_run(Game.DEFAULT_PARTY, Data)
+	begin_stage()
 
 
 func continue_run() -> void:
 	if not Game.load_saved(Data):
-		show_party_select()
+		_new_game()
 		return
-	if str(Game.run["pending"]) != "":
-		run_node(str(Game.run["pending"]))
+	if str(Game.run["pending"]) == "reward":
+		show_reward()
 	else:
-		show_map()
+		begin_stage()
 
 
 func show_rules() -> void:
@@ -525,8 +554,9 @@ func show_rules() -> void:
 		"스킬 조합 · 얼린 적에게 산산조각, 독 걸린 적에게 급소 찌르기, 표식 찍은 적에게 집중 공격, 앙코르로 동료 스킬 한 번 더 등. 면에 마우스를 올리면 설명 표시.",
 		"각인 · 같은 면을 런 동안 여러 번 쓰면(5번, 12번) 그 면이 손에 익어 영구히 강해짐.",
 		"마나와 주문 · 마나는 전투 내내 유지. 마법·지원 직업의 고유 주문에 사용.",
-		"성장 · 전투 보상으로 면 강화나 장비. 막을 깰 때마다 전직해 새 스킬이 열림. 영웅은 전투가 끝나면 모두 회복.",
-		"저장 · 지도 화면으로 돌아올 때마다 자동 저장.",
+		"진행 · 전투 스무 번을 한 줄로 이어 감. 네 번째마다 보스, 스무 번째가 최종 보스. 한 번 지면 처음부터.",
+		"성장 · 홀수 번째 전투 뒤에는 장비 하나, 짝수 번째 전투 뒤에는 영웅 하나 전직. 견습은 빈 면이 있는 단순한 주사위로 시작해 전직할수록 새 스킬이 열림. 영웅은 전투가 끝나면 모두 회복.",
+		"저장 · 전투와 보상 사이마다 자동 저장.",
 	]
 	for line in lines:
 		lbl(v, line, 17, C_TEXT, false, true)
@@ -545,6 +575,7 @@ func _draw_party_select() -> void:
 	lbl(head, "역할마다 영웅 한 명씩 선택. 아래 칸은 그 영웅 주사위의 여섯 면.", 15, C_MUTED, false, true)
 	btn(head, "무작위로 채우기", _random_party)
 	btn(head, "출발", _start_run, true, party_choice.size() < Data.ROLES.size())
+	btn(head, "뒤로", show_title)
 	var area := scroll_area(root)
 	for role in Data.ROLES:
 		var row := hb(area, 10)
@@ -579,8 +610,9 @@ func _start_run() -> void:
 	var keys := []
 	for role in Data.ROLES:
 		keys.append(party_choice[role["key"]])
+	Game.clear_save()
 	Game.new_run(keys, Data)
-	show_map()
+	begin_stage()
 
 
 func show_party_overlay() -> void:
@@ -610,58 +642,27 @@ func show_party_overlay() -> void:
 		lbl(v, Data.face_desc(seen[k]), 15, C_MUTED, false, true)
 
 
-# =============== map ===============
+# =============== run flow ===============
 
-func show_map() -> void:
-	combat = null
-	Game.run["pending"] = ""
+## Starts the fight the run is currently on.
+func begin_stage() -> void:
+	var st: Dictionary = Game.stage_info(int(Game.run["stage"]))
+	Game.run["act"] = int(st["act"])
+	Game.run["pending"] = "fight"
 	Game.save()
-	clear_screen()
-	top_bar()
-	var boss_key: String = Data.encounters[int(Game.run["act"])]["boss"][0]
-	lbl(root, "%d막 · 갈림길 — 빛나는 칸을 골라 전진. 맨 위의 보스는 %s." % [int(Game.run["act"]) + 1, Data.enemies[boss_key]["name"]], 17, C_MUTED, false, true)
-	var mv := Control.new()
-	mv.set_script(MapView)
-	mv.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	mv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mv.custom_minimum_size = Vector2(300, 420)
-	root.add_child(mv)
-	mv.setup(Game.run, Game.open_nodes(), Game.NODE_INFO)
-	mv.chosen.connect(_on_map_chosen)
-	var legend := hb(root, 18, true)
-	for k in ["fight", "elite", "event", "shop", "forge", "boss"]:
-		lbl(legend, "%s %s" % [Game.NODE_INFO[k]["ch"], Game.NODE_INFO[k]["name"]], 15, C_MUTED)
-
-
-func _on_map_chosen(r: int, c: int) -> void:
-	run_node(Game.enter_node(r, c))
-
-
-func run_node(type: String) -> void:
-	match type:
-		"fight", "elite", "boss":
-			start_fight(type)
-		"forge":
-			show_forge()
-		"shop":
-			show_shop()
-		"event":
-			if randf() < 0.2:
-				start_fight("fight", "매복이다!")
-			else:
-				show_event()
-		_:
-			show_map()
+	start_fight(str(st["kind"]), "", st.get("group", []))
 
 
 # =============== combat ===============
 
-func start_fight(kind: String, note := "") -> void:
+func start_fight(kind: String, note := "", fixed: Array = []) -> void:
 	move_mode = false
 	move_sel = -1
 	var enc: Dictionary = Data.encounters[int(Game.run["act"])]
 	var group: Array
-	if kind == "boss":
+	if not fixed.is_empty():
+		group = fixed
+	elif kind == "boss":
 		group = enc["boss"]
 	else:
 		var list: Array = enc["elite" if kind == "elite" else "normal"]
@@ -765,6 +766,13 @@ func refresh() -> void:
 		info_default = "행동 단계 · 주사위를 누른 뒤 빛나는 칸을 누르면 발동. [근접] 스킬은 각 가로줄 맨 앞의 적만 가능."
 	for ab in acts:
 		ab.custom_minimum_size = Vector2(142, 0)
+	var guide: bool = int(Game.run["stage"]) == 0 and not busy
+	if guide:
+		# the opening fight walks through the turn one step at a time
+		if c.phase == "roll":
+			info_default = "① 아래 주사위 넷이 이번 턴에 쓸 스킬. 마음에 드는 것은 눌러서 고정 → ② [다시 굴리기]로 나머지만 다시 굴림 → ③ [굴림 확정]"
+		else:
+			info_default = "④ 주사위를 하나 누르고 → ⑤ 빛나는 칸(적 또는 아군)을 눌러 사용 → ⑥ 다 썼으면 [턴 종료]. 붉은 칸은 적이 이번 턴에 때릴 자리."
 	if move_mode:
 		info_default = "이동 · 옮길 영웅을 누른 뒤 바로 옆 칸을 누름. 아군이 있는 칸이면 자리 바꿈."
 	if message != "":
@@ -774,7 +782,7 @@ func refresh() -> void:
 	ip.add_theme_stylebox_override("panel", sb(C_PANEL2, C_LINE, 2, 2, 12))
 	ip.custom_minimum_size = Vector2(0, 54)
 	root.add_child(ip)
-	info_lbl = lbl(ip, info_default, 15, C_MUTED, false, true)
+	info_lbl = lbl(ip, info_default, 15, C_BRASS if guide and not move_mode else C_MUTED, false, true)
 	info_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	info_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_play_events.call_deferred()
@@ -1540,46 +1548,84 @@ func after_action() -> void:
 # =============== rewards & growth ===============
 
 func on_win() -> void:
-	var kind: String = combat.kind
 	Game.run["kills"] = int(Game.run["kills"]) + combat.enemies.size()
 	combat = null
-	var gold := 10 + randi() % 8
-	if kind == "boss":
-		gold = 60
-	elif kind == "elite":
-		gold = 30 + randi() % 10
-	Game.run["gold"] = int(Game.run["gold"]) + gold
-	if kind == "boss" and int(Game.run["act"]) >= Data.encounters.size() - 1:
+	Game.run["stage"] = int(Game.run["stage"]) + 1
+	if int(Game.run["stage"]) >= Game.stage_count():
 		Game.clear_save()
 		show_end(true, "")
 		return
-	if kind != "boss":
-		Game.run["pending"] = ""
-		Game.save()
-	var after := _after_reward.bind(kind)
-	clear_screen()
-	top_bar()
-	var v := panel(root)
-	lbl(v, "승리", 26, C_BRASS, true)
-	lbl(v, "골드 +%d. 보상 하나 선택." % gold, 17, C_MUTED)
-	choice(v, "주사위 면 강화", "영웅 하나의 스킬 면 하나를 골라 강화", choose_face_upgrade.bind("주사위 면 강화", after, Callable()))
-	var keys := Data.items.keys()
-	keys.shuffle()
-	for id in keys.slice(0, 3 if kind == "elite" else 2):
-		choice(v, "장비: " + Data.items[id]["name"], Data.items[id]["text"], choose_item_holder.bind(id, after))
-	if kind == "elite":
-		choice(v, "면 강화 두 번", "면 강화를 두 번 연속", _double_upgrade.bind("면 강화", after))
+	Game.run["pending"] = "reward"
+	Game.save()
+	show_reward()
 
 
-func _after_reward(kind: String) -> void:
-	if kind == "boss":
-		show_promotion()
+## Rewards alternate: an item after odd fights, a class change after even ones.
+func show_reward() -> void:
+	combat = null
+	offer = []
+	var cleared := int(Game.run["stage"])
+	if Game.reward_kind(cleared) == "item":
+		var keys := Data.items.keys()
+		keys.shuffle()
+		for id in keys.slice(0, 3):
+			offer.append({"item": str(id)})
 	else:
-		show_map()
+		var idx := []
+		var party: Array = Game.run["party"]
+		for hi in party.size():
+			if not Data.hero_class(party[hi])["promo"].is_empty():
+				idx.append(hi)
+		idx.shuffle()
+		for hi in idx.slice(0, 2):
+			var opts: Array = Data.hero_class(party[hi])["promo"]
+			offer.append({"hero": hi, "cls": str(opts[randi() % opts.size()])})
+	_draw_reward()
 
 
-func _double_upgrade(title: String, done: Callable) -> void:
-	choose_face_upgrade(title + " (1/2)", choose_face_upgrade.bind(title + " (2/2)", done, Callable()), Callable())
+func _draw_reward() -> void:
+	clear_screen()
+	set_backdrop("act%d" % (int(Game.run["act"]) + 1), 0.6)
+	top_bar()
+	var cleared := int(Game.run["stage"])
+	var area := scroll_area(root)
+	var next_boss: bool = Game.is_boss_stage(cleared)
+	lbl(area, "%d번째 전투 승리" % cleared, 26, C_BRASS, true)
+	lbl(area, "다음은 %d번째 전투%s." % [cleared + 1, " · 보스" if next_boss else ""], 15, C_DANGER if next_boss else C_MUTED)
+	if offer.is_empty():
+		lbl(area, "전직할 영웅이 없어 주사위 면 하나를 강화.", 15, C_TEXT)
+		btn(area, "면 강화 고르기", choose_face_upgrade.bind("주사위 면 강화", _after_reward, _draw_reward), true)
+		return
+	if offer[0].has("item"):
+		lbl(area, "장비 하나 선택.", 15, C_TEXT)
+		for o in offer:
+			var id: String = o["item"]
+			choice(area, "장비: " + str(Data.items[id]["name"]), str(Data.items[id]["text"]), choose_item_holder.bind(id, _after_reward))
+		return
+	lbl(area, "전직할 영웅 하나 선택. 면 강화와 각인은 같은 자리에 그대로 이어짐.", 15, C_TEXT, false, true)
+	var row := hb(area, 10)
+	for o in offer:
+		var p: Dictionary = Game.run["party"][int(o["hero"])]
+		var cls: Dictionary = Data.classes[o["cls"]]
+		var col := vb(row, 6)
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		choice(col, "%s → %s  (체력 %d)" % [Data.hero_class(p)["name"], cls["name"], cls["hp"]], str(cls["desc"]) + _spell_note(cls), _take_levelup.bind(int(o["hero"]), str(o["cls"])))
+		lbl(col, "지금", 12, C_MUTED, true)
+		face_row(col, p)
+		lbl(col, "전직 후", 12, C_GLOW, true)
+		var tmp: Dictionary = p.duplicate(true)
+		tmp["cls"] = o["cls"]
+		face_row(col, tmp)
+
+
+func _take_levelup(hi: int, k: String) -> void:
+	Game.run["party"][hi]["cls"] = k
+	_after_reward()
+
+
+func _after_reward() -> void:
+	Game.run["pending"] = ""
+	begin_stage()
 
 
 func on_lose() -> void:
@@ -1652,210 +1698,6 @@ func _equip(p: Dictionary, id: String, done: Callable) -> void:
 	done.call()
 
 
-func show_promotion() -> void:
-	promo_choice = {}
-	var party: Array = Game.run["party"]
-	for hi in party.size():
-		var opts: Array = Data.hero_class(party[hi])["promo"]
-		if opts.size() == 1:
-			promo_choice[hi] = str(opts[0])
-	_draw_promotion()
-
-
-func _draw_promotion() -> void:
-	clear_screen()
-	top_bar()
-	var act := int(Game.run["act"])
-	var area := scroll_area(root)
-	var party: Array = Game.run["party"]
-	var need := 0
-	for p in party:
-		if not Data.hero_class(p)["promo"].is_empty():
-			need += 1
-	btn(area, "전직하고 %d막으로" % (act + 2), _apply_promotion, true, promo_choice.size() < need)
-	lbl(area, "%d막 돌파 · 전직" % (act + 1), 26, C_BRASS, true)
-	var note := "모든 영웅이 다음 단계 직업으로 전직. 빈 면이 스킬로 채워지고 새 스킬이 열림." if act == 0 else "영웅마다 두 갈래 중 하나 선택."
-	lbl(area, note + " 면 강화와 각인은 같은 자리에 그대로 이어짐.", 16, C_MUTED, false, true)
-	for hi in party.size():
-		var p: Dictionary = party[hi]
-		var opts: Array = Data.hero_class(p)["promo"]
-		if opts.is_empty():
-			continue
-		lbl(area, Data.hero_class(p)["name"], 15, C_MUTED, true)
-		var row := hb(area, 10)
-		for k in opts:
-			var cls: Dictionary = Data.classes[k]
-			var col := vb(row, 4)
-			col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			choice(col, "%s  (체력 %d)" % [cls["name"], cls["hp"]], cls["desc"] + _spell_note(cls), _pick_promo.bind(hi, k), false, promo_choice.get(hi, "") == k)
-			var tmp: Dictionary = p.duplicate(true)
-			tmp["cls"] = k
-			face_row(col, tmp)
-
-
-func _pick_promo(hi: int, k: String) -> void:
-	promo_choice[hi] = k
-	_draw_promotion()
-
-
-func _apply_promotion() -> void:
-	var party: Array = Game.run["party"]
-	for hi in party.size():
-		if promo_choice.has(hi):
-			party[hi]["cls"] = promo_choice[hi]
-	Game.next_act()
-	show_map()
-
-
-# =============== forge, shop, events ===============
-
-func show_forge() -> void:
-	clear_screen()
-	top_bar()
-	var v := panel(root)
-	lbl(v, "대장간", 26, C_BRASS, true)
-	lbl(v, "불꽃이 튀는 모루 앞. 하나만 선택.", 16, C_MUTED)
-	choice(v, "면 벼리기", "주사위 면 강화 두 번", _double_upgrade.bind("면 벼리기", show_map))
-	choice(v, "갑옷 손질", "모든 영웅 최대 체력 +1", _forge_hp)
-
-
-func _forge_hp() -> void:
-	for p in Game.run["party"]:
-		p["hp_bonus"] = int(p["hp_bonus"]) + 1
-	show_map()
-
-
-func show_shop() -> void:
-	var keys := Data.items.keys()
-	keys.shuffle()
-	shop_stock = []
-	for id in keys.slice(0, 3):
-		shop_stock.append({"id": id, "p": 55 + randi() % 25, "sold": false})
-	shop_face = {"p": 35, "left": 2}
-	_draw_shop()
-
-
-func _draw_shop() -> void:
-	clear_screen()
-	top_bar()
-	var v := panel(root)
-	var gold := int(Game.run["gold"])
-	lbl(v, "떠돌이 상점", 26, C_BRASS, true)
-	lbl(v, "보따리를 펼친 상인. 소지금 %d 골드." % gold, 16, C_MUTED)
-	for idx in shop_stock.size():
-		var s: Dictionary = shop_stock[idx]
-		var sub: String = Data.items[s["id"]]["text"]
-		sub += "  ·  판매 완료" if s["sold"] else "  ·  %d 골드" % s["p"]
-		choice(v, Data.items[s["id"]]["name"], sub, _buy_item.bind(idx), s["sold"] or gold < int(s["p"]))
-	choice(v, "면 손질", "주사위 면 강화 한 번 (남은 수량 %d)  ·  %d 골드" % [shop_face["left"], shop_face["p"]], _buy_face, int(shop_face["left"]) < 1 or gold < int(shop_face["p"]))
-	btn(v, "상점 떠나기", show_map, true)
-
-
-func _buy_item(idx: int) -> void:
-	choose_item_holder(shop_stock[idx]["id"], _bought_item.bind(idx))
-
-
-func _bought_item(idx: int) -> void:
-	var s: Dictionary = shop_stock[idx]
-	Game.run["gold"] = int(Game.run["gold"]) - int(s["p"])
-	s["sold"] = true
-	Game.save()
-	_draw_shop()
-
-
-func _buy_face() -> void:
-	choose_face_upgrade("면 손질", _bought_face, _draw_shop)
-
-
-func _bought_face() -> void:
-	Game.run["gold"] = int(Game.run["gold"]) - int(shop_face["p"])
-	shop_face["left"] = int(shop_face["left"]) - 1
-	Game.save()
-	_draw_shop()
-
-
-func show_event() -> void:
-	var gold := int(Game.run["gold"])
-	var list := [
-		{"title": "수상한 샘", "text": "바위 틈에서 은빛 물이 솟는 샘. 한 명이 마셔 볼 수 있음.", "opts": [
-			{"label": "한 명이 마신다", "sub": "반반 확률: 무작위 영웅 최대 체력 +3, 또는 최대 체력 -1", "id": "spring"},
-			{"label": "그냥 지나간다", "sub": "아무 일도 없음", "id": "pass_spring"}]},
-		{"title": "도박꾼의 탁자", "text": "길가에 주사위 탁자를 펼친 노인. \"20골드 걸고 한 판? 공격 면이 나오면 자네 승리.\"", "opts": [
-			{"label": "20골드를 건다", "sub": "절반 확률로 골드 +30, 아니면 -20", "id": "gamble", "disabled": gold < 20},
-			{"label": "거절한다", "sub": "아무 일도 없음", "id": "pass_gamble"}]},
-		{"title": "버려진 배낭", "text": "쓰러진 모험가 곁에 놓인 낡은 배낭.", "opts": [
-			{"label": "안을 뒤진다", "sub": "무작위 장비 1개", "id": "pack_item"},
-			{"label": "주머니만 챙긴다", "sub": "골드 +30", "id": "pack_gold"}]},
-		{"title": "낡은 제단", "text": "핏자국이 말라붙은 돌 제단. 피를 바치면 보답이 있을 듯한 기운.", "opts": [
-			{"label": "피를 바친다", "sub": "무작위 영웅 최대 체력 -2, 면 강화 두 번", "id": "altar"},
-			{"label": "떠난다", "sub": "아무 일도 없음", "id": "pass_altar"}]},
-		{"title": "떠돌이 대장장이", "text": "모루를 짊어진 대장장이. \"주사위 좀 손봐 줄까? 공짜로.\"", "opts": [
-			{"label": "부탁한다", "sub": "면 강화 한 번", "id": "smith"},
-			{"label": "사양한다", "sub": "골드 +15 (길 안내 값)", "id": "smith_gold"}]},
-	]
-	cur_event = list[randi() % list.size()]
-	clear_screen()
-	top_bar()
-	var v := panel(root)
-	lbl(v, cur_event["title"], 26, C_BRASS, true)
-	lbl(v, cur_event["text"], 17, C_MUTED, false, true)
-	for o in cur_event["opts"]:
-		choice(v, o["label"], o["sub"], _event_pick.bind(o["id"]), o.get("disabled", false))
-
-
-func _event_pick(id: String) -> void:
-	var party: Array = Game.run["party"]
-	var title: String = cur_event["title"]
-	var res := ""
-	match id:
-		"spring":
-			var p: Dictionary = party[randi() % party.size()]
-			if randf() < 0.5:
-				p["hp_bonus"] = int(p["hp_bonus"]) + 3
-				res = "%s의 몸에 힘이 차오름. 최대 체력 +3." % Data.hero_class(p)["name"]
-			else:
-				p["hp_bonus"] = int(p["hp_bonus"]) - 1
-				res = "물이 썩어 있었음. %s의 최대 체력 -1." % Data.hero_class(p)["name"]
-		"pass_spring":
-			res = "샘을 뒤로하고 길을 재촉함."
-		"gamble":
-			if randf() < 0.5:
-				Game.run["gold"] = int(Game.run["gold"]) + 30
-				res = "공격 면. 골드 +30."
-			else:
-				Game.run["gold"] = int(Game.run["gold"]) - 20
-				res = "빈 면. 골드 -20."
-		"pass_gamble":
-			res = "노인이 아쉬운 듯 혀를 참."
-		"pack_item":
-			var keys := Data.items.keys()
-			choose_item_holder(keys[randi() % keys.size()], show_map)
-			return
-		"pack_gold":
-			Game.run["gold"] = int(Game.run["gold"]) + 30
-			res = "골드 +30."
-		"altar":
-			var p: Dictionary = party[randi() % party.size()]
-			p["hp_bonus"] = int(p["hp_bonus"]) - 2
-			_double_upgrade("%s · %s의 최대 체력 -2" % [title, Data.hero_class(p)["name"]], show_map)
-			return
-		"pass_altar":
-			res = "불길한 기운을 피해 자리를 뜸."
-		"smith":
-			choose_face_upgrade(title, show_map, Callable())
-			return
-		"smith_gold":
-			Game.run["gold"] = int(Game.run["gold"]) + 15
-			res = "대장장이가 지름길을 알려 주고 골드 15를 건넴."
-	Game.save()
-	clear_screen()
-	top_bar()
-	var rv := panel(root)
-	lbl(rv, title, 26, C_BRASS, true)
-	lbl(rv, res, 18, C_TEXT, false, true)
-	btn(rv, "계속", show_map, true)
-
-
 # =============== end ===============
 
 func show_end(won: bool, killer: String) -> void:
@@ -1863,13 +1705,14 @@ func show_end(won: bool, killer: String) -> void:
 	top_bar()
 	var area := scroll_area(root)
 	lbl(area, "운명을 이긴 원정대" if won else "전멸한 원정대", 34, C_BRASS, true)
-	var line := "운명의 도박사를 쓰러뜨리고 세 개의 막을 모두 돌파."
+	var line := "운명의 도박사를 쓰러뜨리고 스무 번의 전투를 모두 돌파."
 	if not won:
-		line = "%d막에서 %s에게 전멸." % [int(Game.run["act"]) + 1, killer]
+		line = "%d번째 전투에서 %s에게 전멸." % [int(Game.run["stage"]) + 1, killer]
 	lbl(area, line, 18, C_MUTED, false, true)
-	lbl(area, "쓰러뜨린 적 %d · 지나온 층 %d" % [int(Game.run["kills"]), int(Game.run["floors"])], 17, C_TEXT)
+	lbl(area, "쓰러뜨린 적 %d · 이긴 전투 %d · 모은 금화 %d" % [int(Game.run["kills"]), int(Game.run["stage"]), int(Game.run["gold"])], 17, C_TEXT)
 	for p in Game.run["party"]:
 		var pv := panel(area)
 		lbl(pv, Data.hero_name(p), 19, C_TEXT, true)
 		face_row(pv, p)
-	btn(area, "새 원정", show_party_select, true)
+	btn(area, "새 원정", _new_game, true)
+	btn(area, "처음 화면", show_title)

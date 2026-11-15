@@ -1,17 +1,34 @@
 extends Node
-## Run state (party, gold, map), map generation and save/load. Autoload "Game".
+## Run state (party, progress through the 20 fights) and save/load. Autoload "Game".
 
 const SAVE_PATH := "user://run.json"
-const ROWS := 7
-const COLS := 4
-const NODE_INFO := {
-	"fight": {"ch": "전", "name": "전투"},
-	"elite": {"ch": "정", "name": "정예"},
-	"forge": {"ch": "대", "name": "대장간"},
-	"shop": {"ch": "상", "name": "상점"},
-	"event": {"ch": "?", "name": "미지"},
-	"boss": {"ch": "왕", "name": "보스"},
-}
+
+## A run is twenty fights in a row with no map. Every fourth fight is a boss.
+## "act" picks the enemy pool and backdrop, "kind" the pool inside it, and an
+## optional "group" pins the exact enemies (the opening fight is kept gentle).
+const STAGES := [
+	{"act": 0, "kind": "fight", "group": ["rat", "rat"]},
+	{"act": 0, "kind": "fight"},
+	{"act": 0, "kind": "fight"},
+	{"act": 0, "kind": "elite", "boss": true},
+	{"act": 0, "kind": "fight"},
+	{"act": 0, "kind": "fight"},
+	{"act": 1, "kind": "fight"},
+	{"act": 0, "kind": "boss", "boss": true},
+	{"act": 1, "kind": "fight"},
+	{"act": 1, "kind": "fight"},
+	{"act": 1, "kind": "fight"},
+	{"act": 1, "kind": "elite", "boss": true},
+	{"act": 1, "kind": "fight"},
+	{"act": 2, "kind": "fight"},
+	{"act": 2, "kind": "fight"},
+	{"act": 1, "kind": "boss", "boss": true},
+	{"act": 2, "kind": "fight"},
+	{"act": 2, "kind": "fight"},
+	{"act": 2, "kind": "elite"},
+	{"act": 2, "kind": "boss", "boss": true},
+]
+const DEFAULT_PARTY := ["shieldman", "archer", "pyro", "healer"]
 
 var run = null
 var rng := RandomNumberGenerator.new()
@@ -25,99 +42,24 @@ func new_run(class_keys: Array, D) -> void:
 	var party := []
 	for k in class_keys:
 		party.append(D.make_hero(k))
-	run = {
-		"party": party, "gold": 20, "act": 0, "map": gen_map(),
-		"pos": [-1, -1], "path": [], "floors": 0, "kills": 0, "seen": [], "pending": "",
-	}
+	run = {"party": party, "gold": 0, "act": 0, "stage": 0, "kills": 0, "seen": [], "pending": ""}
 
 
-func gen_map() -> Array:
-	var nodes := []
-	for r in ROWS:
-		var row := []
-		for c in COLS:
-			row.append(null)
-		nodes.append(row)
-	var starts := [0, 1, 2, 3]
-	starts.shuffle()
-	for p in 4:
-		var c: int = starts[p] if p < 3 else starts[rng.randi_range(0, 2)]
-		for r in ROWS:
-			if nodes[r][c] == null:
-				nodes[r][c] = {"type": "", "next": []}
-			if r < ROWS - 1:
-				var nc := clampi(c + rng.randi_range(-1, 1), 0, COLS - 1)
-				if not nc in nodes[r][c]["next"]:
-					nodes[r][c]["next"].append(nc)
-				c = nc
-	var has_shop := false
-	for r in ROWS:
-		for c in COLS:
-			var n = nodes[r][c]
-			if n == null:
-				continue
-			if r == 0:
-				n["type"] = "fight"
-			elif r == ROWS - 1:
-				n["type"] = "forge"
-			else:
-				var w := [["fight", 46], ["event", 20], ["elite", 15 if r >= 2 else 0], ["shop", 11], ["forge", 8 if r >= 2 else 0]]
-				var total := 0
-				for x in w:
-					total += x[1]
-				var t := rng.randi_range(0, total - 1)
-				n["type"] = "fight"
-				for x in w:
-					t -= x[1]
-					if t < 0:
-						n["type"] = x[0]
-						break
-			if n["type"] == "shop":
-				has_shop = true
-	if not has_shop:
-		for c in COLS:
-			if nodes[3][c] != null:
-				nodes[3][c]["type"] = "shop"
-				break
-	return nodes
+func stage_count() -> int:
+	return STAGES.size()
 
 
-func open_nodes() -> Array:
-	var out := []
-	var pr := int(run["pos"][0])
-	var pc := int(run["pos"][1])
-	if pr < 0:
-		for c in COLS:
-			if run["map"][0][c] != null:
-				out.append([0, c])
-	elif pr == ROWS - 1:
-		out.append([ROWS, 0])
-	else:
-		for nc in run["map"][pr][pc]["next"]:
-			out.append([pr + 1, int(nc)])
-	return out
+func stage_info(i: int) -> Dictionary:
+	return STAGES[clampi(i, 0, STAGES.size() - 1)]
 
 
-func enter_node(r: int, c: int) -> String:
-	var type := "boss"
-	if r < ROWS:
-		run["pos"] = [r, c]
-		run["path"].append("%d,%d" % [r, c])
-		type = run["map"][r][c]["type"]
-	run["floors"] += 1
-	run["pending"] = type
-	save()
-	return type
+func is_boss_stage(i: int) -> bool:
+	return bool(stage_info(i).get("boss", false))
 
 
-func next_act() -> void:
-	run["act"] += 1
-	run["map"] = gen_map()
-	run["pos"] = [-1, -1]
-	run["path"] = []
-	run["seen"] = []
-	run["pending"] = ""
-	save()
+## After an odd-numbered fight the party picks an item, after an even one a hero changes class.
+func reward_kind(cleared: int) -> String:
+	return "item" if cleared % 2 == 1 else "levelup"
 
 
 func save() -> void:
@@ -139,20 +81,17 @@ func load_saved(D) -> bool:
 	if f == null:
 		return false
 	var v = JSON.parse_string(f.get_as_text())
-	if typeof(v) != TYPE_DICTIONARY or not v.has("party"):
+	if typeof(v) != TYPE_DICTIONARY or not v.has("party") or not v.has("stage"):
 		return false
 	for p in v["party"]:
+		if not D.classes.has(str(p.get("cls", ""))):
+			return false
 		D.normalize_hero(p)
-	for key in ["gold", "act", "floors", "kills"]:
-		v[key] = int(v[key])
-	v["pos"] = [int(v["pos"][0]), int(v["pos"][1])]
-	for row in v["map"]:
-		for n in row:
-			if n != null:
-				var nx := []
-				for x in n["next"]:
-					nx.append(int(x))
-				n["next"] = nx
+	for key in ["gold", "act", "stage", "kills"]:
+		v[key] = int(v.get(key, 0))
+	v["pending"] = str(v.get("pending", ""))
+	if not v.has("seen"):
+		v["seen"] = []
 	run = v
 	return true
 
@@ -164,9 +103,9 @@ func peek_saved_label() -> String:
 	if f == null:
 		return ""
 	var v = JSON.parse_string(f.get_as_text())
-	if typeof(v) != TYPE_DICTIONARY or not v.has("act"):
+	if typeof(v) != TYPE_DICTIONARY or not v.has("stage"):
 		return ""
-	return "%d막 %d층" % [int(v["act"]) + 1, int(v["floors"])]
+	return "%d번째 전투" % (int(v["stage"]) + 1)
 
 
 func clear_save() -> void:
