@@ -55,6 +55,8 @@ func _ready() -> void:
 	await step("face upgrade")
 	main.choose_item_holder("whet", main._after_reward)
 	await step("item holder")
+	main._after_reward()
+	await step("second fight")
 	main.combat.result = "win"
 	main.on_win()
 	await step("level-up reward")
