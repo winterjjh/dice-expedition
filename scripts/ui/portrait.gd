@@ -40,7 +40,7 @@ func setup(folder: String, key: String, name_text: String, color: Color, px: flo
 	col = color
 	font = f
 	boss = is_boss
-	plain = folder == "enemy"
+	plain = true   # every character is a cut-out sprite standing on its tile
 	custom_minimum_size = Vector2(px, px)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if plain and tex != null:
@@ -50,7 +50,8 @@ func setup(folder: String, key: String, name_text: String, color: Color, px: flo
 			outline_shader.code = OUTLINE
 		var m := ShaderMaterial.new()
 		m.shader = outline_shader
-		m.set_shader_parameter("line", Color("#ffcf5a") if is_boss else Color("#ff3d6e"))
+		var rim := Color("#ff3d6e") if folder == "enemy" else color.lightened(0.25)
+		m.set_shader_parameter("line", Color("#ffcf5a") if is_boss else rim)
 		m.set_shader_parameter("width", maxf(1.0, 2.0 * tex.get_width() / px))
 		material = m
 	queue_redraw()
