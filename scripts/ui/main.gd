@@ -1002,7 +1002,7 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 		nl0.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		nl0.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var po = Portrait.new()
-		po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 78.0, bold)
+		po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], 84.0, bold)
 		po.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		v.add_child(po)
 		if who["hp"] <= 0:
@@ -1045,7 +1045,7 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 		nl.clip_text = true
 		nl.custom_minimum_size = Vector2(66, 0)
 		var po2 = Portrait.new()
-		po2.setup("enemy", str(who["key"]), str(who["name"]), CAT["atk"], 78.0, bold, who["boss"])
+		po2.setup("enemy", str(who["key"]), str(who["name"]), CAT["atk"], 84.0, bold, who["boss"])
 		po2.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		if who["stunned"] or who["frozen"]:
 			po2.modulate = Color(0.6, 0.75, 1.0) if who["frozen"] else Color(0.6, 0.6, 0.6)
@@ -1067,7 +1067,7 @@ func grid_cell(parent: Node, side: String, c: int, r: int, mode: String, threat:
 	# status effects as small coloured tags under the health
 	var brow := hb(v, 2, true)
 	brow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	brow.custom_minimum_size = Vector2(0, 16)
+	brow.custom_minimum_size = Vector2(0, 14)
 	for bi in mini(badges.size(), 3):
 		var bd: Array = badges[bi]
 		var bcol: Color = CAT[bd[1]]
