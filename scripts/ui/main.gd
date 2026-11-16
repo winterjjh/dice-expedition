@@ -870,14 +870,14 @@ func tray_die(parent: Node, h: Dictionary, order: int) -> void:
 	var face: Dictionary = combat.shown_face(h)
 	var locked: bool = combat.phase == "roll" and h["locked"]
 	var d = die_widget(holder, face, locked, sel == int(h["i"]), h["used"], on_die.bind(int(h["i"])))
-	d.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	d.mouse_entered.connect(_info_show.bind(Data.face_desc(face)))
 	d.mouse_exited.connect(_info_show.bind(""))
+	var others := []
 	if h["fresh"] and anim:
-		var others := []
 		for i in 6:
 			others.append(Data.hero_face(h["p"], i))
-		_throw_die.call_deferred(d, others, face, order)
+		d.modulate.a = 0.0
+	_throw_die.call_deferred(d, others, face, order)
 
 
 func _show_face(d, face: Dictionary) -> void:
@@ -896,7 +896,11 @@ func _show_face(d, face: Dictionary) -> void:
 func _throw_die(d: Control, others: Array, face: Dictionary, order: int) -> void:
 	if not is_instance_valid(d):
 		return
-	var rest: Vector2 = d.position
+	var rest: Vector2 = ((d.get_parent() as Control).size - d.size) * 0.5
+	d.position = rest
+	d.modulate.a = 1.0
+	if others.is_empty():
+		return
 	var start := rest + Vector2(-150.0 - randf() * 90.0, -70.0 - randf() * 20.0)
 	start.x = maxf(start.x, 12.0 - d.get_parent().global_position.x)
 	var wait: float = 0.07 * order
