@@ -1034,7 +1034,9 @@ func place_unit(board: Control, side: String, who: Dictionary) -> void:
 		for f2 in who["faces"]:
 			var w: String = str(Data.enemy_faces[f2["k"]]["w"])
 			fl.append(w + (str(f2["n"]) if int(f2["n"]) > 0 else ""))
-		desc += "\n주사위: " + ", ".join(PackedStringArray(fl))
+		desc += "\n주사위: " + ", ".join(PackedStringArray(fl.slice(0, 3)))
+		if fl.size() > 3:
+			desc += "\n" + ", ".join(PackedStringArray(fl.slice(3)))
 		badges = _enemy_badges(who)
 	unit_desc[key] = desc
 	var pips = HpPips.new()
@@ -1046,6 +1048,7 @@ func place_unit(board: Control, side: String, who: Dictionary) -> void:
 	unit.add_child(po)
 	# name and health sit right above the drawn pixels, so short sprites keep them close
 	head.position.y = floorf(_sprite_top(po.tex) * SPRITE)
+	unit.set_meta("top", head.position.y)
 	# this turn's die rides on the hero's shoulder
 	if side == "hero" and alive and who["face"] != null:
 		var md = make_die(unit, cb.shown_face(who), 28.0)
@@ -1189,15 +1192,14 @@ func _show_bubble(side: String, i: int, text: String) -> void:
 	p.add_theme_stylebox_override("panel", glow(sb(Color("#0d0a1c"), col, 2, 2, 10), col, 8, 0.4))
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	fx.add_child(p)
-	var l := lbl(p, text, 12, C_TEXT, false, true)
-	l.custom_minimum_size = Vector2(250, 0)
+	var l := lbl(p, text, 12, C_TEXT)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bubble = p
 	p.reset_size()
 	var r: Rect2 = card.get_global_rect()
 	var view: Vector2 = get_viewport_rect().size
 	var x: float = clampf(r.get_center().x - p.size.x * 0.5, 8.0, view.x - p.size.x - 8.0)
-	var y: float = r.position.y - p.size.y - 6.0
+	var y: float = r.position.y + float(card.get_meta("top", 0.0)) - p.size.y - 4.0
 	if y < 44.0:
 		y = r.position.y + r.size.y + 6.0
 	p.global_position = Vector2(x, y)
