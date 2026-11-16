@@ -1044,6 +1044,8 @@ func place_unit(board: Control, side: String, who: Dictionary) -> void:
 	po.position = Vector2((UNIT_W - SPRITE) * 0.5, 30)
 	po.size = Vector2(SPRITE, SPRITE)
 	unit.add_child(po)
+	# name and health sit right above the drawn pixels, so short sprites keep them close
+	head.position.y = floorf(_sprite_top(po.tex) * SPRITE)
 	# this turn's die rides on the hero's shoulder
 	if side == "hero" and alive and who["face"] != null:
 		var md = make_die(unit, cb.shown_face(who), 28.0)
@@ -1062,6 +1064,26 @@ func place_unit(board: Control, side: String, who: Dictionary) -> void:
 		bl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if badges.size() > 3:
 		lbl(brow, "+%d" % (badges.size() - 3), 12, C_MUTED, true)
+
+
+var _top_cache := {}
+
+
+func _sprite_top(t: Texture2D) -> float:
+	if t == null:
+		return 0.0
+	if _top_cache.has(t):
+		return float(_top_cache[t])
+	var frac := 0.0
+	var img: Image = t.get_image()
+	if img != null:
+		if img.is_compressed():
+			img.decompress()
+		var used: Rect2i = img.get_used_rect()
+		if img.get_height() > 0:
+			frac = clampf(float(used.position.y) / float(img.get_height()) - 0.04, 0.0, 0.6)
+	_top_cache[t] = frac
+	return frac
 
 
 func _hero_badges(h: Dictionary) -> Array:
