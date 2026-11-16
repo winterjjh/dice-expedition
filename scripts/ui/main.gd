@@ -8,7 +8,8 @@ const HpPips = preload("res://scripts/ui/hp_pips.gd")
 const Portrait = preload("res://scripts/ui/portrait.gd")
 const Board = preload("res://scripts/ui/board.gd")
 const LinkLayer = preload("res://scripts/ui/link_layer.gd")
-const TRAY_DIE := 88.0
+const Tray = preload("res://scripts/ui/tray.gd")
+const TRAY_DIE := 76.0
 const ROLE_COL := {"front": Color("#77a9cc"), "shooter": Color("#a9c64a"), "mage": Color("#a988e0"), "support": Color("#8cc47a")}
 const ECAT := {"atk": "atk", "all": "atk", "shield": "def", "heal": "heal", "poison": "poison", "hex": "trick", "blank": "blank"}
 
@@ -742,10 +743,31 @@ func refresh() -> void:
 	body.alignment = BoxContainer.ALIGNMENT_CENTER
 	grid_panel(body, "hero", mode)
 	grid_panel(body, "enemy", mode)
-	# bottom row: every hero's die with its six faces, then the turn buttons
+	# under the field: the tray the dice are thrown into, each hero's six faces below it, then the turn buttons
 	var foot := hb(root, 8)
+	var left := vb(foot, 6)
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var tray = Tray.new()
+	tray.custom_minimum_size = Vector2(0, 112)
+	tray.slots = c.heroes.size()
+	for h0 in c.heroes:
+		tray.slot_cols.append(ROLE_COL[Data.hero_class(h0["p"])["role"]])
+	left.add_child(tray)
+	var slots := hb(tray, 0)
+	slots.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	slots.offset_left = 8
+	slots.offset_right = -8
+	slots.offset_top = 8
+	slots.offset_bottom = -12
+	slots.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var hands := hb(left, 4)
+	var order := 0
 	for h in c.heroes:
-		hand_panel(foot, h)
+		tray_die(slots, h, order)
+		if h["fresh"]:
+			order += 1
+			h["fresh"] = false
+		hand_panel(hands, h)
 	var ar := GridContainer.new()
 	ar.columns = 2
 	ar.add_theme_constant_override("h_separation", 6)
@@ -812,29 +834,15 @@ func hand_panel(parent: Node, h: Dictionary) -> void:
 	if not alive:
 		p.modulate = Color(1, 1, 1, 0.4)
 	parent.add_child(p)
-	var row := hb(p, 8)
-	var holder := Control.new()
-	holder.custom_minimum_size = Vector2(TRAY_DIE, TRAY_DIE)
-	holder.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(holder)
-	if alive and h["face"] != null:
-		var face: Dictionary = combat.shown_face(h)
-		var locked: bool = combat.phase == "roll" and h["locked"]
-		var d = die_widget(holder, face, locked, picked, h["used"], on_die.bind(int(h["i"])), h["fresh"])
-		d.mouse_entered.connect(_info_show.bind(Data.face_desc(face)))
-		d.mouse_exited.connect(_info_show.bind(""))
-		h["fresh"] = false
-	var v := vb(row, 3)
-	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	var nl := lbl(v, Data.hero_class(pp)["name"], 12, ROLE_COL[role], true)
-	nl.clip_text = true
+	var v := vb(p, 3)
+	var top := hb(v, 6)
+	lbl(top, Data.hero_class(pp)["name"], 12, ROLE_COL[role], true)
 	var st := _hero_status(h)
-	var sl := lbl(v, st if st != "" else "체력 %d/%d" % [h["hp"], h["maxhp"]], 12, CAT["def"] if st != "" else C_MUTED)
+	var sl := lbl(top, st if st != "" else "체력 %d/%d" % [h["hp"], h["maxhp"]], 12, CAT["def"] if st != "" else C_MUTED)
 	sl.clip_text = true
+	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var grid := GridContainer.new()
-	grid.columns = 3
+	grid.columns = 6
 	grid.add_theme_constant_override("h_separation", 3)
 	grid.add_theme_constant_override("v_separation", 3)
 	v.add_child(grid)
@@ -848,6 +856,74 @@ func hand_panel(parent: Node, h: Dictionary) -> void:
 		m.dim = not alive
 		m.mouse_entered.connect(_info_show.bind(Data.face_desc(f6)))
 		m.mouse_exited.connect(_info_show.bind(""))
+
+
+## This turn's die for one hero, resting in its slot of the tray. Freshly rolled dice are thrown in.
+func tray_die(parent: Node, h: Dictionary, order: int) -> void:
+	var holder := Control.new()
+	holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(holder)
+	if h["hp"] <= 0 or h["face"] == null:
+		return
+	var face: Dictionary = combat.shown_face(h)
+	var locked: bool = combat.phase == "roll" and h["locked"]
+	var d = die_widget(holder, face, locked, sel == int(h["i"]), h["used"], on_die.bind(int(h["i"])))
+	d.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	d.mouse_entered.connect(_info_show.bind(Data.face_desc(face)))
+	d.mouse_exited.connect(_info_show.bind(""))
+	if h["fresh"] and anim:
+		var others := []
+		for i in 6:
+			others.append(Data.hero_face(h["p"], i))
+		_throw_die.call_deferred(d, others, face, order)
+
+
+func _show_face(d, face: Dictionary) -> void:
+	if not is_instance_valid(d):
+		return
+	var num := 0
+	if not face["k"] in Data.NO_NUMBER:
+		num = int(face["n"])
+	d.kind = str(face["k"])
+	d.n = num
+	d.label = Data.face_name(face)
+	d.col = CAT[Data.face_cat(face)]
+	d.queue_redraw()
+
+
+func _throw_die(d: Control, others: Array, face: Dictionary, order: int) -> void:
+	if not is_instance_valid(d):
+		return
+	var rest: Vector2 = d.position
+	var start := rest + Vector2(-150.0 - randf() * 90.0, -70.0 - randf() * 20.0)
+	start.x = maxf(start.x, 12.0 - d.get_parent().global_position.x)
+	var wait: float = 0.07 * order
+	var dur := 0.62
+	d.pivot_offset = d.size * 0.5
+	d.position = start
+	d.rotation = -TAU * (1.0 + randf())
+	d.scale = Vector2(0.8, 0.8)
+	_show_face(d, others[randi() % others.size()])
+	var tx := d.create_tween().set_parallel(true)
+	tx.tween_property(d, "position:x", rest.x, dur).set_delay(wait).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tx.tween_property(d, "rotation", 0.0, dur).set_delay(wait).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tx.tween_property(d, "scale", Vector2.ONE, dur).set_delay(wait)
+	# drops into the tray and hops three times, each hop lower
+	var ty := d.create_tween()
+	ty.tween_interval(wait)
+	ty.tween_property(d, "position:y", rest.y, dur * 0.30).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	for hop in [22.0, 10.0, 4.0]:
+		ty.tween_property(d, "position:y", rest.y - hop, dur * 0.11).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		ty.tween_property(d, "position:y", rest.y, dur * 0.11).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	# the face keeps changing while it tumbles
+	var tf := d.create_tween()
+	tf.tween_interval(wait)
+	for k in 7:
+		tf.tween_callback(_show_face.bind(d, others[randi() % others.size()]))
+		tf.tween_interval(dur / 8.0)
+	tf.tween_callback(_show_face.bind(d, face))
 
 
 func _toggle_move() -> void:
@@ -1348,7 +1424,7 @@ func die_widget(parent: Node, face: Dictionary, locked: bool, selected: bool, us
 		d.mouse_filter = Control.MOUSE_FILTER_STOP
 		d.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		d.pressed.connect(cb)
-	if fresh:
+	if fresh and anim:
 		d.tumble()
 	return d
 
