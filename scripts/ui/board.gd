@@ -6,7 +6,7 @@ extends Control
 signal cell_pressed(c: int, r: int)
 signal cell_hovered(c: int, r: int)   # (-1, -1) when the pointer leaves
 
-const CW := 140.0     # tile width
+const CW := 122.0     # tile width
 const RH := 96.0      # tile depth on screen
 const SKEW := 38.0    # sideways shift per row
 const HEAD := 78.0    # room above the back row for tall sprites

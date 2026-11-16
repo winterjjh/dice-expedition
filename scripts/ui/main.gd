@@ -738,29 +738,34 @@ func refresh() -> void:
 			b.add_theme_stylebox_override("normal", kb(CAT["mana"], Color("#3a2a5c")))
 			b.add_theme_color_override("font_color", Color("#1a1226"))
 	# the two floors lean toward each other in the middle of the screen
-	var body := hb(root, 28)
+	var body := hb(root, 10)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.alignment = BoxContainer.ALIGNMENT_CENTER
 	grid_panel(body, "hero", mode)
-	grid_panel(body, "enemy", mode)
-	# under the field: the tray the dice are thrown into, each hero's six faces below it, then the turn buttons
-	var foot := hb(root, 8)
-	var left := vb(foot, 6)
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# the tray the dice are thrown into sits in the middle, between the two floors
 	var tray = Tray.new()
-	tray.custom_minimum_size = Vector2(0, 112)
+	tray.custom_minimum_size = Vector2(232, 222)
+	tray.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	tray.slots = c.heroes.size()
 	for h0 in c.heroes:
 		tray.slot_cols.append(ROLE_COL[Data.hero_class(h0["p"])["role"]])
-	left.add_child(tray)
-	var slots := hb(tray, 0)
+	body.add_child(tray)
+	var slots := GridContainer.new()
+	slots.columns = 2
+	slots.add_theme_constant_override("h_separation", 0)
+	slots.add_theme_constant_override("v_separation", 0)
+	tray.add_child(slots)
 	slots.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	slots.offset_left = 8
 	slots.offset_right = -8
 	slots.offset_top = 8
 	slots.offset_bottom = -12
 	slots.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var hands := hb(left, 4)
+	grid_panel(body, "enemy", mode)
+	# bottom row: each hero's six faces, then the turn buttons
+	var foot := hb(root, 8)
+	var hands := hb(foot, 4)
+	hands.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var order := 0
 	for h in c.heroes:
 		tray_die(slots, h, order)
@@ -795,7 +800,7 @@ func refresh() -> void:
 	if guide:
 		# the opening fight walks through the turn one step at a time
 		if c.phase == "roll":
-			info_default = "① 아래 주사위 넷이 이번 턴에 쓸 스킬. 마음에 드는 것은 눌러서 고정 → ② [다시 굴리기]로 나머지만 다시 굴림 → ③ [굴림 확정]"
+			info_default = "① 가운데 주사위 넷이 이번 턴에 쓸 스킬. 마음에 드는 것은 눌러서 고정 → ② [다시 굴리기]로 나머지만 다시 굴림 → ③ [굴림 확정]"
 		else:
 			info_default = "④ 주사위를 하나 누르고 → ⑤ 빛나는 칸(적 또는 아군)을 눌러 사용 → ⑥ 다 썼으면 [턴 종료]. 붉은 칸은 적이 이번 턴에 때릴 자리."
 	if move_mode:
@@ -901,8 +906,7 @@ func _throw_die(d: Control, others: Array, face: Dictionary, order: int) -> void
 	d.modulate.a = 1.0
 	if others.is_empty():
 		return
-	var start := rest + Vector2(-150.0 - randf() * 90.0, -70.0 - randf() * 20.0)
-	start.x = maxf(start.x, 12.0 - d.get_parent().global_position.x)
+	var start := rest + Vector2(-120.0 - randf() * 80.0, -90.0 - randf() * 30.0)
 	var wait: float = 0.07 * order
 	var dur := 0.62
 	d.pivot_offset = d.size * 0.5

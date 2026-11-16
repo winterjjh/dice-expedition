@@ -7,6 +7,7 @@ const FELT := Color("#141a33")
 const FELT_HI := Color("#1c2547")
 
 var slots := 4
+var cols := 2
 var slot_cols := []
 
 
@@ -30,10 +31,12 @@ func _draw() -> void:
 		draw_rect(Rect2(inner.position.x + 8, y, inner.size.x - 16, 2), Color(FELT_HI, 0.5))
 		y += 12.0
 	# where each die comes to rest
-	var w: float = inner.size.x / float(slots)
+	var rows: int = int(ceil(float(slots) / float(cols)))
+	var w: float = inner.size.x / float(cols)
+	var hgt: float = inner.size.y / float(rows)
 	for i in slots:
-		var c := Vector2(inner.position.x + w * (i + 0.5), inner.position.y + inner.size.y * 0.5 + 2.0)
+		var c := Vector2(inner.position.x + w * ((i % cols) + 0.5), inner.position.y + hgt * (int(i / cols) + 0.5))
 		var col: Color = slot_cols[i] if i < slot_cols.size() else Color.WHITE
-		var half := 46.0
-		draw_rect(Rect2(c - Vector2(half, half - 2.0), Vector2(half * 2.0, half * 2.0 - 4.0)), Color(col, 0.10))
-		draw_rect(Rect2(c - Vector2(half, half - 2.0), Vector2(half * 2.0, half * 2.0 - 4.0)), Color(col, 0.35), false, 2.0)
+		var half := 44.0
+		draw_rect(Rect2(c - Vector2(half, half), Vector2(half * 2.0, half * 2.0)), Color(col, 0.10))
+		draw_rect(Rect2(c - Vector2(half, half), Vector2(half * 2.0, half * 2.0)), Color(col, 0.35), false, 2.0)
