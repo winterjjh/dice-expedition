@@ -18,6 +18,7 @@ var selected := false
 var dim := false
 var show_label := true
 var clickable := false
+var deep := false   # loose dice on the table show a thick side
 
 
 func setup(k: String, power: int, text: String, color: Color, px: float, f: Font) -> void:
@@ -61,7 +62,7 @@ func _box(rect: Rect2, fill: Color, border: Color, radius: int, bw: int) -> void
 func _draw() -> void:
 	var s: float = minf(size.x, size.y)
 	var rad := 3 if s >= 40.0 else 2
-	var depth: float = maxf(2.0, s * 0.07)
+	var depth: float = maxf(2.0, s * (0.17 if deep else 0.07))
 	var face_col := IVORY if kind != "blank" else Color("#b9bdb4")
 	var edge := col
 	if locked:
