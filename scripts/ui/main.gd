@@ -155,12 +155,17 @@ func _ready() -> void:
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	# test shortcut: F9 starts a fight with a random party, F10 a boss fight
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_F9, KEY_F10]:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_F7, KEY_F8, KEY_F9, KEY_F10]:
 		_random_party()
 		var keys := []
 		for role in Data.ROLES:
 			keys.append(party_choice[role["key"]])
 		Game.new_run(keys, Data)
+		if event.keycode == KEY_F7 or event.keycode == KEY_F8:
+			# reward screens: F7 the item pick, F8 the class change
+			Game.run["stage"] = 1 if event.keycode == KEY_F7 else 2
+			show_reward()
+			return
 		if event.keycode == KEY_F10:
 			Game.run["stage"] = 7
 		begin_stage()
@@ -632,16 +637,24 @@ func show_party_overlay() -> void:
 	var v := open_overlay("원정대")
 	var seen := {}
 	for p in Game.run["party"]:
-		var pv := panel(v)
-		var top := hb(pv)
-		lbl(top, Data.hero_name(p), 20, C_TEXT, true)
-		spacer(top)
 		var cls: Dictionary = Data.hero_class(p)
-		var spell_name := ""
+		var rcol: Color = ROLE_COL[cls["role"]]
+		var pc := PanelContainer.new()
+		pc.add_theme_stylebox_override("panel", sb(Color("#17132b"), rcol.darkened(0.15), 2, 3, 12))
+		v.add_child(pc)
+		var row := hb(pc, 14)
+		var po = Portrait.new()
+		po.bust = true
+		po.setup("hero", _hero_art_key(str(p["cls"])), str(cls["name"]), rcol, 96.0, bold)
+		po.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(po)
+		var info := vb(row, 4)
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		info.alignment = BoxContainer.ALIGNMENT_CENTER
+		lbl(info, Data.hero_name(p), 24, rcol.lightened(0.15), true)
+		lbl(info, "체력 %d" % Data.hero_max_hp(p), 15, CAT["heal"])
 		if cls["spell"] != "":
-			spell_name = " · 주문 " + Data.spells[cls["spell"]]["name"]
-		lbl(top, "체력 %d%s" % [Data.hero_max_hp(p), spell_name], 15, C_MUTED)
-		face_row(pv, p)
+			lbl(info, "주문: " + str(Data.spells[cls["spell"]]["name"]), 15, CAT["mana"])
 		for i in 6:
 			var f := Data.hero_face(p, i)
 			seen[f["k"]] = f
@@ -649,7 +662,8 @@ func show_party_overlay() -> void:
 			var names := []
 			for it in p["items"]:
 				names.append("%s(%s)" % [Data.items[it]["name"], Data.items[it]["text"]])
-			lbl(pv, "장비: " + ", ".join(PackedStringArray(names)), 15, C_BRASS, false, true)
+			lbl(info, "장비: " + ", ".join(PackedStringArray(names)), 12, C_BRASS, false, true)
+		die_net(row, _hero_net_dice(p, -1, 46.0), 46.0)
 	lbl(v, "면 설명", 18, C_BRASS, true)
 	for k in seen:
 		lbl(v, Data.face_desc(seen[k]), 15, C_MUTED, false, true)
@@ -1729,37 +1743,76 @@ func show_reward() -> void:
 
 func _draw_reward() -> void:
 	clear_screen()
-	set_backdrop("act%d" % (int(Game.run["act"]) + 1), 0.6)
+	set_backdrop("act%d" % (int(Game.run["act"]) + 1), 0.5)
 	top_bar()
 	var cleared := int(Game.run["stage"])
-	var area := scroll_area(root)
 	var next_boss: bool = Game.is_boss_stage(cleared)
-	lbl(area, "%d번째 전투 승리" % cleared, 26, C_BRASS, true)
-	lbl(area, "다음은 %d번째 전투%s." % [cleared + 1, " · 보스" if next_boss else ""], 15, C_DANGER if next_boss else C_MUTED)
+	var cc := CenterContainer.new()
+	cc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(cc)
+	var area := vb(cc, 14)
+	var t := lbl(area, "%d번째 전투 승리" % cleared, 36, C_BRASS, true)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var nx := lbl(area, "다음은 %d번째 전투%s" % [cleared + 1, " · 보스" if next_boss else ""], 15, C_DANGER if next_boss else C_MUTED)
+	nx.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	if offer.is_empty():
-		lbl(area, "전직할 영웅이 없어 주사위 면 하나를 강화.", 15, C_TEXT)
-		btn(area, "면 강화 고르기", choose_face_upgrade.bind("주사위 면 강화", _after_reward, _draw_reward), true)
+		var n0 := lbl(area, "전직할 영웅이 없어 주사위 면 하나를 강화", 15, C_TEXT)
+		n0.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		big_btn(area, "면 강화 고르기", "주사위 면 하나 +1", choose_face_upgrade.bind("주사위 면 강화", _after_reward, _draw_reward), true)
 		return
+	var row := hb(area, 14, true)
 	if offer[0].has("item"):
-		lbl(area, "장비 하나 선택.", 15, C_TEXT)
+		var h0 := lbl(area, "장비 하나 선택", 15, C_TEXT)
+		h0.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		area.move_child(h0, 2)
 		for o in offer:
 			var id: String = o["item"]
-			choice(area, "장비: " + str(Data.items[id]["name"]), str(Data.items[id]["text"]), choose_item_holder.bind(id, _after_reward))
+			var card := _reward_card(row, C_BRASS)
+			var nm := lbl(card, str(Data.items[id]["name"]), 24, C_BRASS, true)
+			nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			var tx := lbl(card, str(Data.items[id]["text"]), 15, C_TEXT, false, true)
+			tx.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			tx.custom_minimum_size = Vector2(250, 96)
+			tx.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			big_btn(card, "받기", "줄 영웅 고르기", choose_item_holder.bind(id, _after_reward), true)
 		return
-	lbl(area, "전직할 영웅 하나 선택. 면 강화와 각인은 같은 자리에 그대로 이어짐.", 15, C_TEXT, false, true)
-	var row := hb(area, 10)
+	var h1 := lbl(area, "전직할 영웅 하나 선택 · 면 강화와 각인은 같은 자리에 그대로 이어짐", 15, C_TEXT)
+	h1.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	area.move_child(h1, 2)
 	for o in offer:
 		var p: Dictionary = Game.run["party"][int(o["hero"])]
 		var cls: Dictionary = Data.classes[o["cls"]]
-		var col := vb(row, 6)
-		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		choice(col, "%s → %s  (체력 %d)" % [Data.hero_class(p)["name"], cls["name"], cls["hp"]], str(cls["desc"]) + _spell_note(cls), _take_levelup.bind(int(o["hero"]), str(o["cls"])))
-		lbl(col, "지금", 12, C_MUTED, true)
-		face_row(col, p)
-		lbl(col, "전직 후", 12, C_GLOW, true)
+		var rcol: Color = ROLE_COL[cls["role"]]
+		var card2 := _reward_card(row, rcol)
+		var head := hb(card2, 10)
+		var po = Portrait.new()
+		po.bust = true
+		po.setup("hero", _hero_art_key(str(o["cls"])), str(cls["name"]), rcol, 72.0, bold)
+		head.add_child(po)
+		var hv := vb(head, 2)
+		hv.alignment = BoxContainer.ALIGNMENT_CENTER
+		lbl(hv, str(Data.hero_class(p)["name"]) + " →", 12, C_MUTED, true)
+		lbl(hv, "%s" % cls["name"], 24, rcol.lightened(0.15), true)
+		lbl(hv, "체력 %d → %d" % [Data.hero_class(p)["hp"], cls["hp"]], 12, CAT["heal"])
+		var nets := hb(card2, 16, true)
+		var old := vb(nets, 4)
+		lbl(old, "지금", 12, C_MUTED, true)
+		die_net(old, _hero_net_dice(p, -1, 34.0), 34.0)
 		var tmp: Dictionary = p.duplicate(true)
 		tmp["cls"] = o["cls"]
-		face_row(col, tmp)
+		var nw := vb(nets, 4)
+		lbl(nw, "전직 후", 12, C_GLOW, true)
+		die_net(nw, _hero_net_dice(tmp, -1, 52.0), 52.0)
+		var ds := lbl(card2, str(cls["desc"]) + _spell_note(cls), 12, C_TEXT, false, true)
+		ds.custom_minimum_size = Vector2(380, 36)
+		big_btn(card2, "전직", str(cls["name"]), _take_levelup.bind(int(o["hero"]), str(o["cls"])), true)
+
+
+func _reward_card(parent: Node, col: Color) -> VBoxContainer:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", glow(sb(Color("#17132b", 0.96), col, 2, 3, 16), Color.BLACK, 12, 0.5))
+	parent.add_child(p)
+	return vb(p, 10)
 
 
 func _take_levelup(hi: int, k: String) -> void:
