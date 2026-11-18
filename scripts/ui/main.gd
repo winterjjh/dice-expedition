@@ -6,9 +6,7 @@ const Combat = preload("res://scripts/combat.gd")
 const DieFace = preload("res://scripts/ui/die_face.gd")
 const HpPips = preload("res://scripts/ui/hp_pips.gd")
 const Portrait = preload("res://scripts/ui/portrait.gd")
-const Board = preload("res://scripts/ui/board.gd")
 const LinkLayer = preload("res://scripts/ui/link_layer.gd")
-const Tray = preload("res://scripts/ui/tray.gd")
 const TRAY_DIE := 76.0
 const ROLE_COL := {"front": Color("#77a9cc"), "shooter": Color("#a9c64a"), "mage": Color("#a988e0"), "support": Color("#8cc47a")}
 const ECAT := {"atk": "atk", "all": "atk", "shield": "def", "heal": "heal", "poison": "poison", "hex": "trick", "blank": "blank"}
@@ -51,11 +49,13 @@ var backdrop: TextureRect
 var backdrop_dim: ColorRect
 var info_lbl: Label = null
 var info_default := ""
-var move_mode := false
-var move_sel := -1
-var boards := {}        # side -> Board node of the current fight screen
-var unit_desc := {}     # "hero0" / "enemy2" -> text for the bubble over that unit
-var bubble: Control = null
+var arena: Control = null      # the open middle of the fight screen where loose dice lie
+var arena_dice := []           # dice to drop into the arena once it has its size
+var tipbox: CenterContainer = null
+const PANEL_W := 318.0
+const PANEL_H := 92.0
+const SLOT := 76.0
+const ARENA_DIE := 84.0
 
 
 func _ready() -> void:
@@ -277,9 +277,9 @@ func clear_screen() -> void:
 	set_backdrop("")
 	enemy_cards.clear()
 	hero_cards.clear()
-	boards.clear()
-	unit_desc.clear()
-	_hide_bubble()
+	arena = null
+	tipbox = null
+	arena_dice = []
 	info_lbl = null
 	if links != null:
 		links.set_links([])
@@ -432,9 +432,13 @@ func hp_bar(parent: Node, value: int, maxv: int, col: Color) -> ProgressBar:
 	return pb
 
 
-func top_bar() -> void:
+func top_bar(in_fight := false) -> void:
 	var h := hb(root, 12)
-	lbl(h, "주사위 원정대", 24, C_BRASS, true)
+	if in_fight and combat != null:
+		var tl := lbl(h, "%d턴" % combat.turn, 24, C_BRASS, true)
+		tl.custom_minimum_size = Vector2(150, 0)
+	else:
+		lbl(h, "주사위 원정대", 24, C_BRASS, true)
 	if Game.run != null:
 		# the whole run at a glance: twenty fights, bosses marked, the current one lit
 		var cur := int(Game.run["stage"])
@@ -517,7 +521,7 @@ func show_title() -> void:
 	var v := vb(c, 18)
 	var dice := hb(v, 12, true)
 	for f in [{"k": "taunt", "n": 1}, {"k": "steal", "n": 0}, {"k": "heat", "n": 2}, {"k": "seed", "n": 2}]:
-		die_widget(dice, f, false, false, false, Callable())
+		make_die(dice, f, 88.0)
 	var t := lbl(v, "주사위 원정대", 54, C_BRASS, true)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var s := lbl(v, "영웅 넷이 저마다 다른 직업 주사위를 굴려 싸우는 원정.\n스무 번의 전투를 이어서 이기면 승리. 한 번 지면 처음부터.", 18, C_TEXT)
@@ -662,8 +666,6 @@ func begin_stage() -> void:
 # =============== combat ===============
 
 func start_fight(kind: String, note := "", fixed: Array = []) -> void:
-	move_mode = false
-	move_sel = -1
 	var enc: Dictionary = Data.encounters[int(Game.run["act"])]
 	var group: Array
 	if not fixed.is_empty():
@@ -707,182 +709,354 @@ func target_mode() -> String:
 func refresh() -> void:
 	var c = combat
 	clear_screen()
-	set_backdrop("act%d" % (int(Game.run["act"]) + 1), 0.36)
-	top_bar()
+	set_backdrop("act%d" % (int(Game.run["act"]) + 1), 0.22)
+	top_bar(true)
 	var mode := target_mode()
-	# one line above the field: turn, what just happened, mana and spells
-	var strip := hb(root, 10)
-	var tl := lbl(strip, "%d턴 · %s" % [c.turn, "적의 차례" if busy else ("굴림" if c.phase == "roll" else "행동")], 15, CAT["hurt"] if busy else C_BRASS)
-	tl.custom_minimum_size = Vector2(150, 0)
-	var last := ""
-	if c.logs.size() > 0:
-		last = str(c.logs[c.logs.size() - 1])
-	var plaque := PanelContainer.new()
-	plaque.add_theme_stylebox_override("panel", sb(Color(C_PANEL2, 0.9), C_LINE, 2, 2, 8))
-	plaque.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	strip.add_child(plaque)
-	var logl := lbl(plaque, last, 15, C_TEXT)
-	logl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	logl.clip_text = true
-	var mrow := hb(strip, 6)
-	ui_icon(mrow, "mana", 26.0)
-	lbl(mrow, "마나 %d" % c.mana, 15, CAT["mana"])
-	for s in c.spells_available():
-		var spd: Dictionary = Data.spells[s]
-		var off: bool = c.phase != "use" or c.mana < int(spd["cost"]) or busy
-		var b := btn(mrow, "%s %d" % [spd["name"], spd["cost"]], on_spell.bind(s), false, off)
-		b.tooltip_text = "%s (마나 %d) · %s" % [spd["name"], spd["cost"], spd["text"]]
-		b.mouse_entered.connect(_info_show.bind(b.tooltip_text))
-		b.mouse_exited.connect(_info_show.bind(""))
-		if armed_spell == s:
-			b.add_theme_stylebox_override("normal", kb(CAT["mana"], Color("#3a2a5c")))
-			b.add_theme_color_override("font_color", Color("#1a1226"))
-	# the two floors lean toward each other in the middle of the screen
-	var body := hb(root, 10)
+	# heroes down the left, enemies down the right, the dice thrown into the open middle
+	var body := hb(root, 0)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.alignment = BoxContainer.ALIGNMENT_CENTER
-	grid_panel(body, "hero", mode)
-	# the tray the dice are thrown into sits in the middle, between the two floors
-	var tray = Tray.new()
-	tray.custom_minimum_size = Vector2(232, 222)
-	tray.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	tray.slots = c.heroes.size()
-	for h0 in c.heroes:
-		tray.slot_cols.append(ROLE_COL[Data.hero_class(h0["p"])["role"]])
-	body.add_child(tray)
-	var slots := GridContainer.new()
-	slots.columns = 2
-	slots.add_theme_constant_override("h_separation", 0)
-	slots.add_theme_constant_override("v_separation", 0)
-	tray.add_child(slots)
-	slots.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	slots.offset_left = 8
-	slots.offset_right = -8
-	slots.offset_top = 8
-	slots.offset_bottom = -12
-	slots.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	grid_panel(body, "enemy", mode)
-	# bottom row: each hero's six faces, then the turn buttons
-	var foot := hb(root, 8)
-	var hands := hb(foot, 4)
-	hands.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var left := vb(body, 8)
+	left.alignment = BoxContainer.ALIGNMENT_CENTER
+	arena = Control.new()
+	arena.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	arena.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_child(arena)
+	var right := vb(body, 8)
+	right.alignment = BoxContainer.ALIGNMENT_CENTER
+	arena_dice = []
 	var order := 0
 	for h in c.heroes:
-		tray_die(slots, h, order)
+		hero_panel(left, h, mode, order)
 		if h["fresh"]:
 			order += 1
 			h["fresh"] = false
-		hand_panel(hands, h)
-	var ar := GridContainer.new()
-	ar.columns = 2
-	ar.add_theme_constant_override("h_separation", 6)
-	ar.add_theme_constant_override("v_separation", 6)
-	ar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	foot.add_child(ar)
-	var acts := []
-	var mv := btn(ar, "이동 취소" if move_mode else ("이동 (%d)" % (0 if c.hero_moved else 1)), _toggle_move, false, busy or c.hero_moved)
-	mv.tooltip_text = "턴마다 한 번, 영웅 하나를 옆 칸으로 옮김. 아군이 있는 칸이면 자리 바꿈."
-	acts.append(mv)
-	var ub := btn(ar, "되돌리기", on_undo, false, busy or not c.can_undo())
-	ub.tooltip_text = "이번 턴에 한 이동, 주사위 사용, 주문을 한 단계씩 취소. 굴림 결과는 그대로."
-	acts.append(ub)
-	if c.phase == "roll":
-		acts.append(btn(ar, "다시 굴리기 (%d)" % c.rerolls, on_reroll, false, busy or not c.can_reroll()))
-		acts.append(btn(ar, "굴림 확정", on_confirm, true, busy))
-		info_default = "굴림 단계 · 마음에 드는 주사위를 눌러 고정하고 나머지를 다시 굴림. 붉은 칸은 적이 노리는 자리."
-	else:
-		acts.append(btn(ar, "선택 취소", _cancel_sel, false, sel < 0 and armed_spell == ""))
-		acts.append(btn(ar, "턴 종료", on_end_turn, true, busy))
-		info_default = "행동 단계 · 주사위를 누른 뒤 빛나는 칸을 누르면 발동. [근접] 스킬은 각 가로줄 맨 앞의 적만 가능."
-	for ab in acts:
-		ab.custom_minimum_size = Vector2(142, 0)
+	for e in c.enemies:
+		if e["hp"] > 0 or _has_event("enemy", int(e["i"])):
+			enemy_panel(right, e, mode)
+	tipbox = CenterContainer.new()
+	tipbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	tipbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	arena.add_child(tipbox)
+	# one line of guidance, then the bar: reroll or undo, spells, done
 	var guide: bool = int(Game.run["stage"]) == 0 and not busy
-	if guide:
-		# the opening fight walks through the turn one step at a time
-		if c.phase == "roll":
-			info_default = "① 가운데 주사위 넷이 이번 턴에 쓸 스킬. 마음에 드는 것은 눌러서 고정 → ② [다시 굴리기]로 나머지만 다시 굴림 → ③ [굴림 확정]"
-		else:
-			info_default = "④ 주사위를 하나 누르고 → ⑤ 빛나는 칸(적 또는 아군)을 눌러 사용 → ⑥ 다 썼으면 [턴 종료]. 붉은 칸은 적이 이번 턴에 때릴 자리."
-	if move_mode:
-		info_default = "이동 · 옮길 영웅을 누른 뒤 바로 옆 칸을 누름. 아군이 있는 칸이면 자리 바꿈."
+	if c.phase == "roll":
+		info_default = "가운데 주사위를 누르면 고정되어 영웅 옆 칸으로 들어감. 고정하지 않은 주사위만 다시 굴림."
+		if guide:
+			info_default = "① 마음에 드는 주사위를 눌러 고정 → ② [다시 굴리기]로 나머지만 다시 굴림 → ③ [굴림 확정]"
+	else:
+		info_default = "영웅 옆 주사위를 누르고 대상을 누르면 발동. [근접] 스킬은 앞줄 적만 가능."
+		if guide:
+			info_default = "④ 영웅 옆 주사위를 하나 누르고 → ⑤ 빛나는 대상을 눌러 사용 → ⑥ 다 썼으면 [턴 종료]. 붉은 영웅이 이번 턴에 맞을 차례."
+	if c.logs.size() > 0 and not guide:
+		info_default = str(c.logs[c.logs.size() - 1])
+	if busy:
+		info_default = "적의 차례"
 	if message != "":
 		info_default = message
 		message = ""
-	var ip := PanelContainer.new()
-	ip.add_theme_stylebox_override("panel", sb(C_PANEL2, C_LINE, 2, 2, 12))
-	ip.custom_minimum_size = Vector2(0, 54)
-	root.add_child(ip)
-	info_lbl = lbl(ip, info_default, 15, C_BRASS if guide and not move_mode else C_MUTED, false, true)
+	info_lbl = lbl(root, info_default, 15, C_BRASS if guide else C_TEXT)
 	info_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	info_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	info_lbl.clip_text = true
+	info_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	info_lbl.add_theme_constant_override("outline_size", 4)
+	var bar := hb(root, 8)
+	bar.custom_minimum_size = Vector2(0, 92)
+	var lb: Button
+	if c.phase == "roll":
+		lb = big_btn(bar, "다시 굴리기", "%d / %d" % [c.rerolls, 2 + (1 if c.party_has("feather") else 0)], on_reroll, false, busy or not c.can_reroll())
+	else:
+		lb = big_btn(bar, "되돌리기", "굴림은 그대로", on_undo, false, busy or not c.can_undo())
+	lb.custom_minimum_size = Vector2(PANEL_W, 0)
+	var mid := PanelContainer.new()
+	mid.add_theme_stylebox_override("panel", sb(Color(C_PANEL2, 0.94), C_LINE, 2, 2, 8))
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.add_child(mid)
+	var mrow := hb(mid, 8, true)
+	ui_icon(mrow, "mana", 30.0)
+	lbl(mrow, "마나 %d" % c.mana, 15, CAT["mana"], true)
+	for s in c.spells_available():
+		var spd: Dictionary = Data.spells[s]
+		var off: bool = c.phase != "use" or c.mana < int(spd["cost"]) or busy
+		var b := big_btn(mrow, str(spd["name"]), "마나 %d" % int(spd["cost"]), on_spell.bind(s), false, off)
+		b.custom_minimum_size = Vector2(150, 64)
+		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var tip := "%s (마나 %d) · %s" % [spd["name"], spd["cost"], spd["text"]]
+		b.mouse_entered.connect(_info_show.bind(tip))
+		b.mouse_exited.connect(_info_show.bind(""))
+		if armed_spell == s:
+			b.add_theme_stylebox_override("normal", kb(CAT["mana"], Color("#3a2a5c")))
+	var rb: Button
+	if c.phase == "roll":
+		rb = big_btn(bar, "굴림 확정", "주사위 사용 단계로", on_confirm, true, busy)
+	else:
+		rb = big_btn(bar, "턴 종료", "적의 차례로", on_end_turn, true, busy)
+	rb.custom_minimum_size = Vector2(PANEL_W, 0)
+	_place_arena_dice.call_deferred()
 	_play_events.call_deferred()
-	_update_links()
-	_selected_bubble.call_deferred()
+	_selected_tip.call_deferred()
 
 
-func hand_box(alive: bool, picked: bool, col: Color) -> StyleBoxFlat:
-	var s := sb(Color("#1c1838") if alive else C_PANEL2, C_GLOW if picked else col.darkened(0.3), 2, 3 if picked else 2, 8)
-	if picked:
-		glow(s, C_GLOW, 10)
+## A two-line button for the bottom bar: what it does, and a smaller note under it.
+func big_btn(parent: Node, title: String, note: String, cb: Callable, primary := false, disabled := false) -> Button:
+	var b := btn(parent, "", cb, primary, disabled)
+	b.custom_minimum_size = Vector2(0, 64)
+	var v := VBoxContainer.new()
+	v.set_anchors_preset(Control.PRESET_FULL_RECT)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", 2)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(v)
+	var ink := Color("#1a1226") if primary else C_TEXT
+	if disabled:
+		ink = C_MUTED.darkened(0.3)
+	var t := lbl(v, title, 24 if primary else 15, ink, true)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var n := lbl(v, note, 12, ink.darkened(0.1) if primary else (C_MUTED if not disabled else ink))
+	n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	n.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return b
+
+
+func _unit_box(fill: Color, edge: Color, lit: bool) -> StyleBoxFlat:
+	var s := sb(fill, edge, 2, 3, 6)
+	if lit:
+		glow(s, C_GLOW, 10, 0.7)
 	return s
 
 
-## One hero's "hand": this turn's die (click to lock or use) next to all six faces.
-func hand_panel(parent: Node, h: Dictionary) -> void:
+## One hero: picture, name and health, and the slot its die drops into.
+func hero_panel(parent: Node, h: Dictionary, mode: String, order: int) -> void:
+	var c = combat
+	var i := int(h["i"])
 	var pp: Dictionary = h["p"]
 	var role: String = Data.hero_class(pp)["role"]
+	var rcol: Color = ROLE_COL[role]
 	var alive: bool = h["hp"] > 0
-	var picked: bool = sel == int(h["i"])
-	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", hand_box(alive, picked, ROLE_COL[role]))
-	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var picked: bool = sel == i
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(PANEL_W + 30, PANEL_H)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(wrap)
+	var inc: int = c.incoming_for(h) if alive else 0
+	var lethal: bool = inc > 0 and inc >= int(h["hp"]) + int(h["shield"])
+	var can_hit := false
+	if alive and mode == "ally":
+		can_hit = c.can_cast(armed_spell, h) if armed_spell != "" else (sel >= 0 and c.can_use(sel, h))
+	var fill := Color("#17132b", 0.95)
+	var edge := rcol.darkened(0.15)
+	if lethal:
+		fill = Color("#7a1730", 0.96)
+		edge = C_DANGER
+	elif inc > 0:
+		fill = Color("#43162a", 0.95)
+		edge = CAT["hurt"]
+	if can_hit:
+		edge = C_GLOW
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _unit_box(fill, edge, can_hit))
+	card.size = Vector2(PANEL_W, PANEL_H)
+	card.position = Vector2(30 if picked else 0, 0)   # the chosen hero steps toward the middle
+	card.mouse_filter = Control.MOUSE_FILTER_STOP
+	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	card.gui_input.connect(_unit_input.bind("hero", i))
+	card.mouse_entered.connect(_show_card.bind("hero", i))
+	card.mouse_exited.connect(_hide_card)
+	wrap.add_child(card)
+	hero_cards[i] = card
 	if not alive:
-		p.modulate = Color(1, 1, 1, 0.4)
-	parent.add_child(p)
-	var v := vb(p, 3)
+		card.modulate = Color(0.5, 0.5, 0.6, 0.55)
+	var row := hb(card, 8)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var po = Portrait.new()
+	po.bust = true
+	po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), rcol, PANEL_H - 18, bold)
+	po.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(po)
+	var v := vb(row, 4)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var top := hb(v, 6)
-	lbl(top, Data.hero_class(pp)["name"], 12, ROLE_COL[role], true)
-	var st := _hero_status(h)
-	var sl := lbl(top, st if st != "" else "체력 %d/%d" % [h["hp"], h["maxhp"]], 12, CAT["def"] if st != "" else C_MUTED)
-	sl.clip_text = true
-	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var grid := GridContainer.new()
-	grid.columns = 6
-	grid.add_theme_constant_override("h_separation", 3)
-	grid.add_theme_constant_override("v_separation", 3)
-	v.add_child(grid)
-	var cur := -1
-	if h["face"] != null:
-		cur = int(h["face_idx"])
-	for i in 6:
-		var f6: Dictionary = Data.hero_face(pp, i)
-		var m = make_die(grid, f6, 30.0)
-		m.selected = i == cur and alive
-		m.dim = not alive
-		m.mouse_entered.connect(_info_show.bind(Data.face_desc(f6)))
-		m.mouse_exited.connect(_info_show.bind(""))
-
-
-## This turn's die for one hero, resting in its slot of the tray. Freshly rolled dice are thrown in.
-func tray_die(parent: Node, h: Dictionary, order: int) -> void:
-	var holder := Control.new()
-	holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(holder)
-	if h["hp"] <= 0 or h["face"] == null:
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var nl := lbl(top, Data.hero_class(pp)["name"], 15, rcol.lightened(0.15) if alive else C_MUTED, true)
+	nl.clip_text = true
+	nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if inc > 0:
+		var il := lbl(top, "-%d" % inc, 12, Color("#1b0d0a") if lethal else CAT["hurt"], true)
+		il.add_theme_stylebox_override("normal", sb(CAT["hurt"] if lethal else Color("#1b0d0a"), CAT["hurt"], 2, 2, 3))
+	var pips = HpPips.new()
+	pips.setup(int(h["hp"]), int(h["maxhp"]), int(h["shield"]), CAT["heal"], 120.0, true)
+	pips.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(pips)
+	_badge_row(v, _hero_badges(h))
+	# the slot: empty while the die is still out in the middle
+	var slot := Panel.new()
+	slot.add_theme_stylebox_override("panel", sb(Color("#0c0a18"), rcol.darkened(0.35), 2, 2, 0))
+	slot.custom_minimum_size = Vector2(SLOT, SLOT)
+	slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(slot)
+	if not alive or h["face"] == null:
 		return
-	var face: Dictionary = combat.shown_face(h)
-	var locked: bool = combat.phase == "roll" and h["locked"]
-	var d = die_widget(holder, face, locked, sel == int(h["i"]), h["used"], on_die.bind(int(h["i"])))
-	d.mouse_entered.connect(_info_show.bind(Data.face_desc(face)))
-	d.mouse_exited.connect(_info_show.bind(""))
-	var others := []
-	if h["fresh"] and anim:
-		for i in 6:
-			others.append(Data.hero_face(h["p"], i))
-		d.modulate.a = 0.0
-	_throw_die.call_deferred(d, others, face, order)
+	var face: Dictionary = c.shown_face(h)
+	var in_slot: bool = c.phase != "roll" or h["locked"]
+	if in_slot:
+		var d = make_die(slot, face, SLOT - 8)
+		d.position = Vector2(4, 4)
+		d.locked = c.phase == "roll"
+		d.selected = picked
+		d.dim = h["used"]
+		_wire_die(d, i, face)
+	else:
+		arena_dice.append({"h": h, "face": face, "fresh": bool(h["fresh"]), "order": order, "col": rcol})
+
+
+## One enemy, mirrored: what it will do this turn, name and health, picture.
+func enemy_panel(parent: Node, e: Dictionary, mode: String) -> void:
+	var c = combat
+	var i := int(e["i"])
+	var alive: bool = e["hp"] > 0
+	var boss: bool = e["boss"]
+	var ph: float = PANEL_H + (28 if boss else 0)
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(PANEL_W + 30, ph)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(wrap)
+	var can_hit := false
+	var blocked := false
+	if alive and mode == "enemy":
+		can_hit = c.can_cast(armed_spell, e) if armed_spell != "" else (sel >= 0 and c.can_use(sel, e))
+		blocked = not can_hit
+	var edge := Color("#ffcf5a") if boss else Color("#8a63c9")
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _unit_box(Color("#17132b", 0.95), C_GLOW if can_hit else edge, can_hit))
+	card.size = Vector2(PANEL_W, ph)
+	card.position = Vector2(30 if int(e["c"]) > 0 else 0, 0)   # the back line stands further from the middle
+	card.mouse_filter = Control.MOUSE_FILTER_STOP
+	card.gui_input.connect(_unit_input.bind("enemy", i))
+	card.mouse_entered.connect(_show_card.bind("enemy", i))
+	card.mouse_exited.connect(_hide_card)
+	if can_hit:
+		card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	wrap.add_child(card)
+	enemy_cards[i] = card
+	if blocked:
+		card.modulate = Color(0.55, 0.55, 0.65)
+	var row := hb(card, 8)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var slot := Panel.new()
+	slot.add_theme_stylebox_override("panel", sb(Color("#0c0a18"), edge.darkened(0.35), 2, 2, 0))
+	slot.custom_minimum_size = Vector2(SLOT, SLOT)
+	slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(slot)
+	if alive and e["face"] != null:
+		var f: Dictionary = e["face"]
+		var k: String = f["k"]
+		var val: int = c.enemy_value(e) if k in ["atk", "all"] else int(f["n"])
+		var d = DieFace.new()
+		d.setup(k, 0 if e["stunned"] else val, "", CAT[ECAT.get(k, "blank")], SLOT - 8, bold)
+		d.position = Vector2(4, 4)
+		d.dim = e["stunned"]
+		d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slot.add_child(d)
+	var v := vb(row, 4)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var nl := lbl(v, str(e["name"]) + (" · 뒷줄" if int(e["c"]) > 0 else ""), 15, edge.lightened(0.3), true)
+	nl.clip_text = true
+	var pips = HpPips.new()
+	pips.setup(int(e["hp"]), int(e["maxhp"]), int(e["shield"]), CAT["atk"], 120.0, true)
+	pips.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(pips)
+	_badge_row(v, _enemy_badges(e))
+	var po = Portrait.new()
+	po.setup("enemy", str(e["key"]), str(e["name"]), CAT["atk"], ph - 18, bold, boss)
+	po.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if e["stunned"] or e["frozen"]:
+		po.modulate = Color(0.6, 0.75, 1.0) if e["frozen"] else Color(0.6, 0.6, 0.6)
+	row.add_child(po)
+
+
+func _badge_row(parent: Node, badges: Array) -> void:
+	if badges.is_empty():
+		return
+	var brow := hb(parent, 2)
+	brow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for bi in mini(badges.size(), 3):
+		var bd: Array = badges[bi]
+		var bcol: Color = CAT[bd[1]]
+		var bl := lbl(brow, str(bd[0]), 12, Color("#0d0a1c"), true)
+		bl.add_theme_stylebox_override("normal", sb(bcol, bcol.darkened(0.4), 2, 1, 3))
+		bl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if badges.size() > 3:
+		lbl(brow, "+%d" % (badges.size() - 3), 12, C_MUTED, true)
+
+
+func _wire_die(d, i: int, face: Dictionary) -> void:
+	d.clickable = true
+	d.mouse_filter = Control.MOUSE_FILTER_STOP
+	d.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	d.pressed.connect(on_die.bind(i))
+	d.mouse_entered.connect(_show_card.bind("hero", i))
+	d.mouse_exited.connect(_hide_card)
+	d.tooltip_text = ""
+
+
+func _unit_input(event: InputEvent, side: String, i: int) -> void:
+	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
+		return
+	if busy or combat == null:
+		return
+	var u: Dictionary = (combat.heroes if side == "hero" else combat.enemies)[i]
+	var mode := target_mode()
+	if (sel >= 0 or armed_spell != "") and ((side == "enemy" and mode == "enemy") or (side == "hero" and mode == "ally")):
+		pick_target(u)
+	elif side == "hero":
+		on_die(i)
+
+
+## Dice that are not locked lie loose in the middle; freshly rolled ones are thrown in.
+func _place_arena_dice() -> void:
+	if arena == null or not is_instance_valid(arena) or combat == null:
+		return
+	var n: int = arena_dice.size()
+	var mid: Vector2 = arena.size * 0.5
+	var rx: float = minf(arena.size.x * 0.5 - ARENA_DIE, 190.0)
+	var ry: float = minf(arena.size.y * 0.5 - ARENA_DIE, 150.0)
+	for k in n:
+		var it: Dictionary = arena_dice[k]
+		var h: Dictionary = it["h"]
+		var i := int(h["i"])
+		# each die keeps its own spot for the whole turn so locking one does not shuffle the rest
+		var seed_v: int = combat.turn * 131 + i * 17
+		var ang: float = TAU * (float(i) / maxf(1.0, float(combat.heroes.size()))) + float(seed_v % 7) * 0.13
+		var rest := mid + Vector2(cos(ang) * rx * (0.55 + float(seed_v % 5) * 0.1), sin(ang) * ry * (0.55 + float(seed_v % 3) * 0.2))
+		var w := Control.new()
+		w.size = Vector2(ARENA_DIE + 10, ARENA_DIE + 10)
+		w.pivot_offset = w.size * 0.5
+		w.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		arena.add_child(w)
+		arena.move_child(w, 0)
+		var rim := Panel.new()
+		var rim_col: Color = it["col"]
+		rim.add_theme_stylebox_override("panel", glow(sb(Color("#0c0a18"), rim_col, 2, 3, 0), Color.BLACK, 10, 0.5))
+		rim.size = w.size
+		rim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		w.add_child(rim)
+		var d = make_die(w, it["face"], ARENA_DIE)
+		d.position = Vector2(5, 5)
+		_wire_die(d, i, it["face"])
+		var tilt: float = (float(seed_v % 9) - 4.0) * 0.045
+		w.position = rest - w.size * 0.5
+		w.rotation = tilt
+		if it["fresh"] and anim:
+			var others := []
+			for f in 6:
+				others.append(Data.hero_face(h["p"], f))
+			_throw_die(w, d, others, it["face"], int(it["order"]), tilt)
 
 
 func _show_face(d, face: Dictionary) -> void:
@@ -898,35 +1072,29 @@ func _show_face(d, face: Dictionary) -> void:
 	d.queue_redraw()
 
 
-func _throw_die(d: Control, others: Array, face: Dictionary, order: int) -> void:
-	if not is_instance_valid(d):
-		return
-	var rest: Vector2 = ((d.get_parent() as Control).size - d.size) * 0.5
-	d.position = rest
-	d.modulate.a = 1.0
-	if others.is_empty():
-		return
-	var start := rest + Vector2(-120.0 - randf() * 80.0, -90.0 - randf() * 30.0)
-	var wait: float = 0.07 * order
-	var dur := 0.62
-	d.pivot_offset = d.size * 0.5
-	d.position = start
-	d.rotation = -TAU * (1.0 + randf())
-	d.scale = Vector2(0.8, 0.8)
+func _throw_die(w: Control, d, others: Array, face: Dictionary, order: int, tilt: float) -> void:
+	var rest: Vector2 = w.position
+	var from_left: bool = randf() < 0.5
+	var start := rest + Vector2((-1.0 if from_left else 1.0) * (120.0 + randf() * 80.0), -110.0 - randf() * 40.0)
+	var wait: float = 0.06 * order
+	var dur := 0.66
+	w.position = start
+	w.rotation = TAU * (1.0 + randf()) * (-1.0 if from_left else 1.0)
+	w.scale = Vector2(1.25, 1.25)
 	_show_face(d, others[randi() % others.size()])
-	var tx := d.create_tween().set_parallel(true)
-	tx.tween_property(d, "position:x", rest.x, dur).set_delay(wait).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tx.tween_property(d, "rotation", 0.0, dur).set_delay(wait).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tx.tween_property(d, "scale", Vector2.ONE, dur).set_delay(wait)
-	# drops into the tray and hops three times, each hop lower
-	var ty := d.create_tween()
+	var tx := w.create_tween().set_parallel(true)
+	tx.tween_property(w, "position:x", rest.x, dur).set_delay(wait).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tx.tween_property(w, "rotation", tilt, dur).set_delay(wait).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tx.tween_property(w, "scale", Vector2.ONE, dur * 0.5).set_delay(wait)
+	# falls onto the table and hops three times, each hop lower
+	var ty := w.create_tween()
 	ty.tween_interval(wait)
-	ty.tween_property(d, "position:y", rest.y, dur * 0.30).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	for hop in [22.0, 10.0, 4.0]:
-		ty.tween_property(d, "position:y", rest.y - hop, dur * 0.11).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-		ty.tween_property(d, "position:y", rest.y, dur * 0.11).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	ty.tween_property(w, "position:y", rest.y, dur * 0.30).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	for hop in [26.0, 12.0, 5.0]:
+		ty.tween_property(w, "position:y", rest.y - hop, dur * 0.11).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		ty.tween_property(w, "position:y", rest.y, dur * 0.11).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	# the face keeps changing while it tumbles
-	var tf := d.create_tween()
+	var tf := w.create_tween()
 	tf.tween_interval(wait)
 	for k in 7:
 		tf.tween_callback(_show_face.bind(d, others[randi() % others.size()]))
@@ -934,89 +1102,158 @@ func _throw_die(d: Control, others: Array, face: Dictionary, order: int) -> void
 	tf.tween_callback(_show_face.bind(d, face))
 
 
-func _toggle_move() -> void:
-	move_mode = not move_mode
-	move_sel = -1
-	sel = -1
-	armed_spell = ""
-	refresh()
+## The six faces of a die laid out unfolded, like a paper net.
+func die_net(parent: Node, dice: Array, px: float) -> void:
+	var g := GridContainer.new()
+	g.columns = 4
+	g.add_theme_constant_override("h_separation", 2)
+	g.add_theme_constant_override("v_separation", 2)
+	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(g)
+	var spot := {1: 0, 4: 1, 5: 2, 6: 3, 7: 4, 9: 5}
+	for cell in 12:
+		if spot.has(cell) and int(spot[cell]) < dice.size():
+			var d: Control = dice[int(spot[cell])]
+			d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			g.add_child(d)
+		else:
+			var gap := Control.new()
+			gap.custom_minimum_size = Vector2(px, px)
+			gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			g.add_child(gap)
 
 
-func grid_panel(parent: Node, side: String, mode: String) -> void:
-	var cb = combat
-	var board = Board.new()
-	board.setup(side)
-	board.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	parent.add_child(board)
-	boards[side] = board
-	# tiles the enemies are aiming at
-	var threat := {}
+func _hero_net_dice(pp: Dictionary, cur: int, px: float) -> Array:
+	var out := []
+	for f in 6:
+		var face: Dictionary = Data.hero_face(pp, f)
+		var d = DieFace.new()
+		var num := 0
+		if not face["k"] in Data.NO_NUMBER:
+			num = int(face["n"])
+		d.setup(str(face["k"]), num, Data.face_name(face), CAT[Data.face_cat(face)], px, bold)
+		d.selected = f == cur
+		out.append(d)
+	return out
+
+
+func _tip_panel(col: Color) -> VBoxContainer:
+	for ch in tipbox.get_children():
+		tipbox.remove_child(ch)
+		ch.queue_free()
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", glow(sb(Color("#0d0a1c", 0.97), col, 2, 2, 12), Color.BLACK, 12, 0.6))
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tipbox.add_child(p)
+	var v := vb(p, 6)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return v
+
+
+## Pointing at a hero or an enemy opens its card in the middle: health, die net, what it does.
+func _show_card(side: String, i: int) -> void:
+	if combat == null or tipbox == null or not is_instance_valid(tipbox):
+		return
+	var c = combat
 	if side == "hero":
-		for e in cb.live_enemies():
-			var strong: bool = str(e["tmode"]) != "row"
-			for cell in cb.enemy_threat_cells(e):
-				var key := Vector2i(int(cell[0]), int(cell[1]))
-				threat[key] = maxi(int(threat.get(key, 0)), 2 if strong else 1)
-			for v in cb.enemy_victims(e):
-				threat[Vector2i(int(v["c"]), int(v["r"]))] = 2
-	var units: Array = cb.heroes if side == "hero" else cb.enemies
-	var clickable := false
-	for r in 3:
-		for c in 3:
-			var u: Dictionary = cb.unit_at(units, c, r)
-			var dead: Dictionary = {}
-			if u.is_empty() and side == "hero":
-				dead = cb.unit_at(units, c, r, true)
-			var pick := false
-			if move_mode and side == "hero":
-				if move_sel < 0:
-					pick = not u.is_empty()
-				else:
-					pick = cb.can_move(move_sel, c, r)
-			elif not u.is_empty():
-				if side == "enemy" and mode == "enemy":
-					pick = true
-					if sel >= 0 and armed_spell == "":
-						pick = cb.can_use(sel, u)
-				elif side == "hero" and mode == "ally":
-					pick = true
-			elif not dead.is_empty() and mode == "dead":
-				pick = true
-			var chosen: bool = move_mode and side == "hero" and not u.is_empty() and int(u["i"]) == move_sel
-			var fill := Color("#241d47") if (c + r) % 2 == 0 else Color("#2c2456")
-			var edge := Color(0, 0, 0, 0)
-			var th := int(threat.get(Vector2i(c, r), 0))
-			if th == 2:
-				fill = Color("#4d1846")
-				edge = C_DANGER
-			elif th == 1:
-				fill = fill.lerp(Color("#4d1846"), 0.45)
-			if pick:
-				edge = C_GLOW
-				fill = fill.lightened(0.1)
-				clickable = true
-			if chosen:
-				edge = Color.WHITE
-			board.cells[Vector2i(c, r)] = {"fill": fill, "edge": edge, "glow": edge.a > 0.0, "pulse": pick}
-	if clickable or (move_mode and side == "hero"):
-		board.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	board.cell_pressed.connect(_cell_click.bind(side))
-	board.cell_hovered.connect(_cell_hover.bind(side))
-	# units, back rows first so the front ones overlap them
-	var shown := []
-	for u2 in units:
-		var live: bool = u2["hp"] > 0
-		# a fallen hero stays on the floor; a defeated enemy stays one more draw for its last hit
-		if live or side == "hero" or _has_event("enemy", int(u2["i"])):
-			if live or cb.unit_at(units, int(u2["c"]), int(u2["r"])).is_empty():
-				shown.append(u2)
-	shown.sort_custom(_by_row)
-	for u3 in shown:
-		place_unit(board, side, u3)
+		var h: Dictionary = c.heroes[i]
+		var pp: Dictionary = h["p"]
+		var rcol: Color = ROLE_COL[Data.hero_class(pp)["role"]]
+		var v := _tip_panel(rcol)
+		lbl(v, "%s · 체력 %d/%d" % [Data.hero_class(pp)["name"], h["hp"], h["maxhp"]], 15, rcol.lightened(0.15), true)
+		var st := _hero_status(h)
+		if st != "":
+			lbl(v, st, 12, CAT["def"])
+		var row := hb(v, 12)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		die_net(row, _hero_net_dice(pp, int(h["face_idx"]) if h["face"] != null else -1, 46.0), 46.0)
+		if h["hp"] > 0 and h["face"] != null:
+			var dl := lbl(row, "이번 면\n" + Data.face_desc(c.shown_face(h)), 12, C_TEXT, false, true)
+			dl.custom_minimum_size = Vector2(220, 0)
+		_hover_links(side, i)
+	else:
+		var e: Dictionary = c.enemies[i]
+		var v2 := _tip_panel(C_DANGER)
+		lbl(v2, "%s%s · 체력 %d/%d" % [e["name"], " (뒷줄)" if int(e["c"]) > 0 else "", e["hp"], e["maxhp"]], 15, C_DANGER.lightened(0.2), true)
+		var es := _enemy_status(e)
+		if es != "":
+			lbl(v2, es, 12, CAT["def"])
+		var row2 := hb(v2, 12)
+		row2.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var dice := []
+		for f2 in e["faces"]:
+			var d = DieFace.new()
+			var k: String = f2["k"]
+			d.setup(k, int(f2["n"]), "", CAT[ECAT.get(k, "blank")], 46.0, bold)
+			d.selected = e["face"] != null and f2 == e["face"]
+			dice.append(d)
+		die_net(row2, dice, 46.0)
+		if e["hp"] > 0 and e["face"] != null:
+			var il := lbl(row2, "이번 턴\n" + str(c.enemy_intent(e)["t"]), 12, C_TEXT, false, true)
+			il.custom_minimum_size = Vector2(220, 0)
+		_hover_links(side, i)
 
 
-func _by_row(a: Dictionary, b: Dictionary) -> bool:
-	return int(a["r"]) < int(b["r"])
+func _hide_card() -> void:
+	if links != null:
+		links.set_links([])
+	_selected_tip()
+
+
+## With a die or a spell chosen, the middle says what it does and asks for a target.
+func _selected_tip() -> void:
+	if tipbox == null or not is_instance_valid(tipbox):
+		return
+	for ch in tipbox.get_children():
+		tipbox.remove_child(ch)
+		ch.queue_free()
+	if combat == null or busy or combat.phase != "use":
+		return
+	if sel >= 0:
+		var h: Dictionary = combat.heroes[sel]
+		if h["face"] == null:
+			return
+		var face: Dictionary = combat.shown_face(h)
+		var v := _tip_panel(CAT[Data.face_cat(face)])
+		var row := hb(v, 10)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var d = make_die(row, face, 56.0)
+		d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var tl := lbl(row, Data.face_desc(face), 15, C_TEXT, false, true)
+		tl.custom_minimum_size = Vector2(300, 0)
+		lbl(v, "빛나는 대상을 눌러 사용", 12, C_GLOW)
+	elif armed_spell != "":
+		var spd: Dictionary = Data.spells[armed_spell]
+		var v2 := _tip_panel(CAT["mana"])
+		var tl2 := lbl(v2, "%s · %s" % [spd["name"], spd["text"]], 15, C_TEXT, false, true)
+		tl2.custom_minimum_size = Vector2(340, 0)
+		lbl(v2, "빛나는 대상을 눌러 사용", 12, C_GLOW)
+
+
+## While a unit is pointed at, lines show who is aiming at whom.
+func _hover_links(side: String, i: int) -> void:
+	if links == null or combat == null:
+		return
+	var out := []
+	for e in combat.live_enemies():
+		if e["stunned"] or e["face"] == null:
+			continue
+		if side == "enemy" and int(e["i"]) != i:
+			continue
+		var ec = enemy_cards.get(int(e["i"]))
+		if ec == null or not is_instance_valid(ec):
+			continue
+		var er: Rect2 = ec.get_global_rect()
+		var k: String = e["face"]["k"]
+		for v in combat.enemy_victims(e):
+			if side == "hero" and int(v["i"]) != i:
+				continue
+			var hc = hero_cards.get(int(v["i"]))
+			if hc == null or not is_instance_valid(hc):
+				continue
+			var hr: Rect2 = hc.get_global_rect()
+			out.append({"a": Vector2(er.position.x, er.get_center().y), "b": Vector2(hr.end.x, hr.get_center().y), "col": Color(CAT[ECAT.get(k, "blank")], 0.8)})
+	links.set_links(out)
 
 
 func _has_event(side: String, i: int) -> bool:
@@ -1024,153 +1261,6 @@ func _has_event(side: String, i: int) -> bool:
 		if e["side"] == side and int(e["i"]) == i:
 			return true
 	return false
-
-
-const UNIT_W := 132.0
-const SPRITE := 112.0
-
-
-## A unit standing on its tile: intent or name and health over the head, the
-## sprite with a pool of light under it, status tags at the feet.
-func place_unit(board: Control, side: String, who: Dictionary) -> void:
-	var cb = combat
-	var foot: Vector2 = board.foot(int(who["c"]), int(who["r"]))
-	var unit := Control.new()
-	unit.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	unit.size = Vector2(UNIT_W, 30 + SPRITE)
-	unit.position = foot - Vector2(UNIT_W * 0.5, 30 + SPRITE - 6)
-	board.add_child(unit)
-	var key := "%s%d" % [side, int(who["i"])]
-	if side == "hero":
-		hero_cards[int(who["i"])] = unit
-	else:
-		enemy_cards[int(who["i"])] = unit
-	board.unit_rects.append({"rect": Rect2(unit.position + Vector2(18, 30), Vector2(UNIT_W - 36, SPRITE)), "c": int(who["c"]), "r": int(who["r"])})
-	var alive: bool = who["hp"] > 0
-	var pool := TextureRect.new()
-	pool.texture = pool_tex
-	pool.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	pool.stretch_mode = TextureRect.STRETCH_SCALE
-	pool.material = pool_mat
-	pool.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pool.position = Vector2(4, 30 + SPRITE - 34)
-	pool.size = Vector2(UNIT_W - 8, 52)
-	unit.add_child(pool)
-	var head := vb(unit, 1)
-	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	head.position = Vector2(0, 0)
-	head.size = Vector2(UNIT_W, 30)
-	head.alignment = BoxContainer.ALIGNMENT_END
-	var po = Portrait.new()
-	var desc := ""
-	var badges := []
-	if side == "hero":
-		var pp: Dictionary = who["p"]
-		var role: String = Data.hero_class(pp)["role"]
-		pool.modulate = Color(ROLE_COL[role], 0.55 if alive else 0.0)
-		var top := hb(head, 4, true)
-		top.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var inc: int = cb.incoming_for(who) if alive else 0
-		if inc > 0:
-			var danger: bool = inc >= int(who["hp"]) + int(who["shield"])
-			var il := lbl(top, "-%d" % inc, 12, Color("#1b0d0a") if danger else CAT["hurt"], true)
-			il.add_theme_stylebox_override("normal", sb(CAT["hurt"] if danger else Color("#1b0d0a"), CAT["hurt"], 2, 2, 3))
-		var nl0 := lbl(top, Data.hero_class(pp)["name"], 12, ROLE_COL[role], true)
-		nl0.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-		nl0.add_theme_constant_override("outline_size", 4)
-		po.setup("hero", _hero_art_key(str(pp["cls"])), str(Data.hero_class(pp)["name"]), ROLE_COL[role], SPRITE, bold)
-		if not alive:
-			unit.modulate = Color(0.45, 0.45, 0.55, 0.5)
-		desc = "%s · 체력 %d/%d" % [Data.hero_class(pp)["name"], who["hp"], who["maxhp"]]
-		var hs := _hero_status(who)
-		if hs != "":
-			desc += "\n" + hs
-		if alive and who["face"] != null:
-			desc += "\n이번 주사위: " + Data.face_desc(cb.shown_face(who))
-		badges = _hero_badges(who)
-	else:
-		pool.modulate = Color(Color("#ff4f6a"), 0.5 if alive else 0.0)
-		var top2 := hb(head, 3, true)
-		top2.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var it := {"c": "blank", "t": ""}
-		if who["face"] != null and alive:
-			var f: Dictionary = who["face"]
-			var k: String = f["k"]
-			var val: int = cb.enemy_value(who) if k in ["atk", "all"] else int(f["n"])
-			var d = DieFace.new()
-			d.setup(k, 0, "", CAT[ECAT.get(k, "blank")], 24.0, bold)
-			d.dim = who["stunned"]
-			d.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			top2.add_child(d)
-			it = cb.enemy_intent(who)
-			if val > 0 and not who["stunned"]:
-				var vl := lbl(top2, str(val), 15, CAT[ECAT.get(k, "blank")], true)
-				vl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-				vl.add_theme_constant_override("outline_size", 4)
-		po.setup("enemy", str(who["key"]), str(who["name"]), CAT["atk"], SPRITE, bold, who["boss"])
-		if who["stunned"] or who["frozen"]:
-			po.modulate = Color(0.6, 0.75, 1.0) if who["frozen"] else Color(0.6, 0.6, 0.6)
-		desc = "%s%s · 체력 %d/%d\n%s" % [who["name"], " (원거리)" if who["ranged"] else "", who["hp"], who["maxhp"], it["t"]]
-		var es := _enemy_status(who)
-		if es != "":
-			desc += " · " + es
-		var fl := []
-		for f2 in who["faces"]:
-			var w: String = str(Data.enemy_faces[f2["k"]]["w"])
-			fl.append(w + (str(f2["n"]) if int(f2["n"]) > 0 else ""))
-		desc += "\n주사위: " + ", ".join(PackedStringArray(fl.slice(0, 3)))
-		if fl.size() > 3:
-			desc += "\n" + ", ".join(PackedStringArray(fl.slice(3)))
-		badges = _enemy_badges(who)
-	unit_desc[key] = desc
-	var pips = HpPips.new()
-	pips.setup(int(who["hp"]), int(who["maxhp"]), int(who["shield"]), CAT["heal"] if side == "hero" else CAT["atk"], 100.0, true)
-	pips.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	head.add_child(pips)
-	po.position = Vector2((UNIT_W - SPRITE) * 0.5, 30)
-	po.size = Vector2(SPRITE, SPRITE)
-	unit.add_child(po)
-	# name and health sit right above the drawn pixels, so short sprites keep them close
-	head.position.y = floorf(_sprite_top(po.tex) * SPRITE)
-	unit.set_meta("top", head.position.y)
-	# this turn's die rides on the hero's shoulder
-	if side == "hero" and alive and who["face"] != null:
-		var md = make_die(unit, cb.shown_face(who), 28.0)
-		md.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		md.dim = who["used"]
-		md.position = Vector2(UNIT_W - 30, 34)
-	var brow := hb(unit, 2, true)
-	brow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	brow.position = Vector2(0, 30 + SPRITE - 12)
-	brow.size = Vector2(UNIT_W, 16)
-	for bi in mini(badges.size(), 3):
-		var bd: Array = badges[bi]
-		var bcol: Color = CAT[bd[1]]
-		var bl := lbl(brow, str(bd[0]), 12, Color("#0d0a1c"), true)
-		bl.add_theme_stylebox_override("normal", sb(bcol, bcol.darkened(0.4), 2, 1, 3))
-		bl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if badges.size() > 3:
-		lbl(brow, "+%d" % (badges.size() - 3), 12, C_MUTED, true)
-
-
-var _top_cache := {}
-
-
-func _sprite_top(t: Texture2D) -> float:
-	if t == null:
-		return 0.0
-	if _top_cache.has(t):
-		return float(_top_cache[t])
-	var frac := 0.0
-	var img: Image = t.get_image()
-	if img != null:
-		if img.is_compressed():
-			img.decompress()
-		var used: Rect2i = img.get_used_rect()
-		if img.get_height() > 0:
-			frac = clampf(float(used.position.y) / float(img.get_height()) - 0.04, 0.0, 0.6)
-	_top_cache[t] = frac
-	return frac
 
 
 func _hero_badges(h: Dictionary) -> Array:
@@ -1225,81 +1315,6 @@ func _enemy_badges(e: Dictionary) -> Array:
 	if e["mark"] > 0:
 		st.append(["표식", "atk"])
 	return st
-
-
-func _cell_click(c: int, r: int, side: String) -> void:
-	if busy or combat == null:
-		return
-	var units: Array = combat.heroes if side == "hero" else combat.enemies
-	var u: Dictionary = combat.unit_at(units, c, r)
-	if move_mode and side == "hero":
-		if move_sel >= 0 and combat.can_move(move_sel, c, r):
-			combat.move_hero(move_sel, c, r)
-			move_mode = false
-			move_sel = -1
-		elif not u.is_empty():
-			move_sel = int(u["i"])
-		refresh()
-		return
-	if u.is_empty():
-		u = combat.unit_at(units, c, r, true)
-	if not u.is_empty() and (sel >= 0 or armed_spell != ""):
-		pick_target(u)
-
-
-## Pointing at a unit opens a speech bubble over its head with what it is and what it will do.
-func _cell_hover(c: int, r: int, side: String) -> void:
-	if combat == null or c < 0:
-		_selected_bubble()
-		return
-	var units: Array = combat.heroes if side == "hero" else combat.enemies
-	var u: Dictionary = combat.unit_at(units, c, r)
-	if u.is_empty():
-		_selected_bubble()
-		return
-	_show_bubble(side, int(u["i"]), str(unit_desc.get("%s%d" % [side, int(u["i"])], "")))
-
-
-func _hide_bubble() -> void:
-	if bubble != null and is_instance_valid(bubble):
-		bubble.queue_free()
-	bubble = null
-
-
-func _show_bubble(side: String, i: int, text: String) -> void:
-	_hide_bubble()
-	var card = (hero_cards if side == "hero" else enemy_cards).get(i)
-	if text == "" or card == null or not is_instance_valid(card):
-		return
-	var p := PanelContainer.new()
-	var col: Color = C_GLOW if side == "hero" else C_DANGER
-	p.add_theme_stylebox_override("panel", glow(sb(Color("#0d0a1c"), col, 2, 2, 10), col, 8, 0.4))
-	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	fx.add_child(p)
-	var l := lbl(p, text, 12, C_TEXT)
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bubble = p
-	p.reset_size()
-	var r: Rect2 = card.get_global_rect()
-	var view: Vector2 = get_viewport_rect().size
-	var x: float = clampf(r.get_center().x - p.size.x * 0.5, 8.0, view.x - p.size.x - 8.0)
-	var y: float = r.position.y + float(card.get_meta("top", 0.0)) - p.size.y - 4.0
-	if y < 44.0:
-		y = r.position.y + r.size.y + 6.0
-	p.global_position = Vector2(x, y)
-
-
-## With nothing under the pointer, the bubble explains the die that is about to be used.
-func _selected_bubble() -> void:
-	if combat == null or sel < 0 or busy:
-		_hide_bubble()
-		return
-	var h: Dictionary = combat.heroes[sel]
-	if h["hp"] <= 0 or h["face"] == null:
-		_hide_bubble()
-		return
-	var face: Dictionary = combat.shown_face(h)
-	_show_bubble("hero", sel, "%s\n%s" % [Data.face_title(face), Data.face_desc(face)])
 
 
 func _hero_status(h: Dictionary) -> String:
@@ -1364,36 +1379,6 @@ func _info_show(text: String) -> void:
 		info_lbl.add_theme_color_override("font_color", C_TEXT if text != "" else C_MUTED)
 
 
-func _update_links() -> void:
-	await get_tree().process_frame
-	if combat == null or links == null:
-		return
-	var out := []
-	for e in combat.live_enemies():
-		if e["stunned"] or e["face"] == null or str(e["tmode"]) == "":
-			continue
-		var ec = enemy_cards.get(int(e["i"]))
-		if ec == null or not is_instance_valid(ec):
-			continue
-		var er: Rect2 = ec.get_global_rect()
-		var k: String = e["face"]["k"]
-		var cells := []
-		if str(e["tmode"]) == "cross":
-			cells = [[int(e["tc"]), int(e["tr"])]]
-		else:
-			for v in combat.enemy_victims(e):
-				cells.append([int(v["c"]), int(v["r"])])
-			if cells.is_empty():
-				cells = [[0 if str(e["tmode"]) == "row" else int(e["tc"]), int(e["tr"])]]
-		for cell in cells:
-			var hb2 = boards.get("hero")
-			if hb2 == null or not is_instance_valid(hb2):
-				continue
-			var target: Vector2 = hb2.global_position + hb2.cell_centre(int(cell[0]), int(cell[1]))
-			out.append({"a": Vector2(er.position.x + 20, er.get_center().y + 20), "b": target, "col": Color(CAT[ECAT[k]], 0.45)})
-	links.set_links(out)
-
-
 func _hero_art_key(cls: String) -> String:
 	# promoted classes borrow the earlier class picture until they get their own
 	var cur := cls
@@ -1415,26 +1400,6 @@ func _cancel_sel() -> void:
 	sel = -1
 	armed_spell = ""
 	refresh()
-
-
-func _card_input(event: InputEvent, t: Dictionary) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		pick_target(t)
-
-
-func die_widget(parent: Node, face: Dictionary, locked: bool, selected: bool, used: bool, cb: Callable, fresh := false) -> Control:
-	var d = make_die(parent, face, TRAY_DIE)
-	d.locked = locked
-	d.selected = selected
-	d.dim = used
-	if cb.is_valid():
-		d.clickable = true
-		d.mouse_filter = Control.MOUSE_FILTER_STOP
-		d.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		d.pressed.connect(cb)
-	if fresh and anim:
-		d.tumble()
-	return d
 
 
 func _float_text(at: Vector2, text: String, col: Color, size := 24, delay := 0.0, plate := false) -> void:
@@ -1557,8 +1522,6 @@ func _act_die(i: int, t) -> void:
 func on_die(i: int) -> void:
 	if busy or combat == null:
 		return
-	move_mode = false
-	move_sel = -1
 	var c = combat
 	if c.phase == "roll":
 		c.toggle_lock(i)
@@ -1615,8 +1578,6 @@ func on_undo() -> void:
 		return
 	sel = -1
 	armed_spell = ""
-	move_mode = false
-	move_sel = -1
 	combat.undo()
 	refresh()
 
@@ -1641,7 +1602,6 @@ func on_end_turn() -> void:
 		return
 	sel = -1
 	armed_spell = ""
-	move_mode = false
 	var c = combat
 	if not anim:
 		c.end_turn()

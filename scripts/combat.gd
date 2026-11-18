@@ -23,9 +23,6 @@ var undo_stack := []   # snapshots taken before each move / die use / spell this
 
 ## Each side stands on its own 3x3 grid. "c" is the column (0 = front, next to the
 ## other side) and "r" is the row (0..2).
-const HERO_START := {"front": [0, 1], "shooter": [1, 0], "mage": [2, 1], "support": [1, 2]}
-const MELEE_SLOTS := [[0, 1], [0, 0], [0, 2], [1, 1], [1, 0], [1, 2], [2, 1], [2, 0], [2, 2]]
-const RANGED_SLOTS := [[2, 1], [2, 0], [2, 2], [1, 1], [1, 0], [1, 2], [0, 1], [0, 0], [0, 2]]
 
 
 func _init(data, run_state: Dictionary, fight_kind: String, group: Array) -> void:
@@ -37,13 +34,9 @@ func _init(data, run_state: Dictionary, fight_kind: String, group: Array) -> voi
 	for i in party.size():
 		var p: Dictionary = party[i]
 		var mh: int = D.hero_max_hp(p)
-		var start: Array = HERO_START.get(D.hero_class(p)["role"], [1, 1])
-		var hc := int(start[0])
-		var hr := int(start[1])
-		while not unit_at(heroes, hc, hr, true).is_empty():
-			hr = (hr + 1) % 3
-			if hr == int(start[1]):
-				hc = (hc + 1) % 3
+		# one column per side: "r" is the place in the column, "c" is 0 for the front line and 1 for the back line
+		var hc := 0
+		var hr := i
 		heroes.append({
 			"c": hc, "r": hr,
 			"i": i, "p": p, "hp": mh, "maxhp": mh, "shield": 0, "poison": 0,
@@ -56,11 +49,7 @@ func _init(data, run_state: Dictionary, fight_kind: String, group: Array) -> voi
 		var key: String = group[j]
 		var e: Dictionary = D.enemies[key]
 		var is_ranged: bool = bool(e.get("ranged", false))
-		var slot := [1, 1]
-		for sl in (RANGED_SLOTS if is_ranged else MELEE_SLOTS):
-			if unit_at(enemies, int(sl[0]), int(sl[1]), true).is_empty():
-				slot = sl
-				break
+		var slot := [1 if is_ranged else 0, j]
 		enemies.append({
 			"c": int(slot[0]), "r": int(slot[1]), "ranged": is_ranged, "tmode": "", "tc": -1, "tr": -1, "forced": -1,
 			"i": j, "key": key, "name": e["name"], "hp": e["hp"], "maxhp": e["hp"],
@@ -93,47 +82,50 @@ func unit_at(side: Array, c: int, r: int, include_dead := false) -> Dictionary:
 	return {}
 
 
-func front_of_row(side: Array, r: int) -> Dictionary:
-	var best := {}
+func has_front(side: Array) -> bool:
 	for u in side:
-		if u["hp"] > 0 and int(u["r"]) == r and (best.is_empty() or int(u["c"]) < int(best["c"])):
-			best = u
-	return best
+		if u["hp"] > 0 and int(u["c"]) == 0:
+			return true
+	return false
 
 
 func exposed(u: Dictionary, side: Array) -> bool:
-	# nobody alive stands in front of this unit in its row
-	var f := front_of_row(side, int(u["r"]))
-	return not f.is_empty() and int(f["i"]) == int(u["i"])
+	# the back line cannot be reached in melee while anyone still stands in the front line
+	return int(u["c"]) == 0 or not has_front(side)
 
 
-func shape_cells(shape: String, c: int, r: int) -> Array:
+## Nearest living unit above (dir -1) or below (dir 1) in the column.
+func neighbour(side: Array, u: Dictionary, dir: int) -> Dictionary:
+	var best := {}
+	for x in side:
+		if x["hp"] <= 0 or int(x["i"]) == int(u["i"]):
+			continue
+		var d: int = (int(x["r"]) - int(u["r"])) * dir
+		if d > 0 and (best.is_empty() or d < (int(best["r"]) - int(u["r"])) * dir):
+			best = x
+	return best
+
+
+## Who an area effect centred on u reaches. "col" = everyone in the same line,
+## "row" = u and the one below, "cross" = u and the ones above and below.
+func shape_units(side: Array, shape: String, u: Dictionary) -> Array:
 	var out := []
+	if u["hp"] > 0:
+		out.append(u)
 	match shape:
-		"row":
-			for x in 3:
-				out.append([x, r])
 		"col":
-			for y in 3:
-				out.append([c, y])
+			for x in side:
+				if x["hp"] > 0 and int(x["c"]) == int(u["c"]) and int(x["i"]) != int(u["i"]):
+					out.append(x)
+		"row":
+			var below := neighbour(side, u, 1)
+			if not below.is_empty():
+				out.append(below)
 		"cross":
-			out.append([c, r])
-			for d in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
-				var x: int = c + int(d[0])
-				var y: int = r + int(d[1])
-				if x >= 0 and x < 3 and y >= 0 and y < 3:
-					out.append([x, y])
-		_:
-			out.append([c, r])
-	return out
-
-
-func units_in(side: Array, cells: Array) -> Array:
-	var out := []
-	for cell in cells:
-		var u := unit_at(side, int(cell[0]), int(cell[1]))
-		if not u.is_empty():
-			out.append(u)
+			for dir in [-1, 1]:
+				var n := neighbour(side, u, dir)
+				if not n.is_empty():
+					out.append(n)
 	return out
 
 
@@ -146,48 +138,24 @@ func face_melee(k: String) -> bool:
 
 
 func push_unit(side: Array, u: Dictionary, dc: int) -> bool:
-	# dc > 0 pushes away from the other side, dc < 0 pulls toward the front
+	# dc > 0 sends the unit to the back line, dc < 0 drags it to the front line
 	if u["hp"] <= 0:
 		return false
-	var moved := false
-	var steps: int = absi(dc)
-	var dir: int = 1 if dc > 0 else -1
-	for s in steps:
-		var nc: int = int(u["c"]) + dir
-		if nc < 0 or nc > 2 or not unit_at(side, nc, int(u["r"])).is_empty():
-			break
-		u["c"] = nc
-		moved = true
-	if moved:
-		ev("enemy" if u.has("key") else "hero", u["i"], "밀려남" if dc > 0 else "끌려옴", "trick")
-	sync_targets()
-	return moved
-
-
-func can_move(i: int, c: int, r: int) -> bool:
-	if result != "" or hero_moved or i < 0 or i >= heroes.size():
+	var nc: int = 1 if dc > 0 else 0
+	if int(u["c"]) == nc:
 		return false
-	var h: Dictionary = heroes[i]
-	if h["hp"] <= 0 or c < 0 or c > 2 or r < 0 or r > 2:
-		return false
-	return absi(int(h["c"]) - c) + absi(int(h["r"]) - r) == 1
-
-
-func move_hero(i: int, c: int, r: int) -> bool:
-	if not can_move(i, c, r):
-		return false
-	_push_undo()
-	var h: Dictionary = heroes[i]
-	var other := unit_at(heroes, c, r, true)
-	if not other.is_empty():
-		other["c"] = h["c"]
-		other["r"] = h["r"]
-	h["c"] = c
-	h["r"] = r
-	hero_moved = true
-	log_add("%s 이동" % hero_label(h) + ("" if other.is_empty() else " · %s와 자리 바꿈" % hero_label(other)))
+	u["c"] = nc
+	ev("enemy" if u.has("key") else "hero", u["i"], "뒷줄로 밀려남" if dc > 0 else "앞줄로 끌려옴", "trick")
 	sync_targets()
 	return true
+
+
+func can_move(_i: int, _c: int, _r: int) -> bool:
+	return false
+
+
+func move_hero(_i: int, _c: int, _r: int) -> bool:
+	return false
 
 
 # ---------------- undo ----------------
@@ -260,11 +228,7 @@ func pick_enemy_target(e: Dictionary) -> void:
 	if pool.is_empty():
 		pool = hs
 	var t: Dictionary = pool[rng.randi_range(0, pool.size() - 1)]
-	if k == "atk" and not e["ranged"]:
-		e["tmode"] = "row"
-		e["tr"] = int(t["r"])
-		t = front_of_row(heroes, int(t["r"]))
-	elif k == "all":
+	if k == "all":
 		e["tmode"] = "cross"
 		e["tc"] = int(t["c"])
 		e["tr"] = int(t["r"])
@@ -275,26 +239,16 @@ func pick_enemy_target(e: Dictionary) -> void:
 	_aimed.append(int(t["i"]))
 
 
-func enemy_threat_cells(e: Dictionary) -> Array:
-	if e["hp"] <= 0 or e["stunned"] or e["face"] == null:
-		return []
-	match str(e["tmode"]):
-		"row": return shape_cells("row", 0, int(e["tr"]))
-		"cell": return [[int(e["tc"]), int(e["tr"])]]
-		"cross": return shape_cells("cross", int(e["tc"]), int(e["tr"]))
-	return []
-
-
 func enemy_victims(e: Dictionary) -> Array:
 	if e["hp"] <= 0 or e["stunned"] or e["face"] == null or str(e["tmode"]) == "":
 		return []
 	var mode: String = e["tmode"]
 	if mode != "cross" and int(e["forced"]) >= 0 and heroes[int(e["forced"])]["hp"] > 0:
 		return [heroes[int(e["forced"])]]
-	if mode == "row":
-		var f := front_of_row(heroes, int(e["tr"]))
-		return [] if f.is_empty() else [f]
-	return units_in(heroes, enemy_threat_cells(e))
+	var t: Dictionary = heroes[clampi(int(e["tr"]), 0, heroes.size() - 1)]
+	if mode == "cross":
+		return shape_units(heroes, "cross", t)
+	return [t] if t["hp"] > 0 else []
 
 
 func sync_targets() -> void:
@@ -397,7 +351,7 @@ func enemy_intent(e: Dictionary) -> Dictionary:
 		return {"c": "blank", "t": "행동 불가"}
 	var f: Dictionary = e["face"]
 	var vs := enemy_victims(e)
-	var tname := "빈 칸 (빗나감)"
+	var tname := "대상 없음"
 	if not vs.is_empty():
 		var names := []
 		for v in vs:
@@ -754,13 +708,13 @@ func use_die(i: int, target = null) -> bool:
 			_glove(h, target)
 			log_add("%s · %s %d×2 → %s" % [who, D.face_name(f), n, target["name"]])
 		"all":
-			for e in units_in(enemies, shape_cells("col", int(target["c"]), int(target["r"]))):
+			for e in shape_units(enemies, "col", target):
 				hit_enemy(e, n, h)
-			log_add("%s · %s %d · 세로줄 전체" % [who, D.face_name(f), n])
+			log_add("%s · %s %d · 같은 줄 전체" % [who, D.face_name(f), n])
 		"pierce":
-			for e in units_in(enemies, shape_cells("row", int(target["c"]), int(target["r"]))):
+			for e in shape_units(enemies, "row", target):
 				hit_enemy(e, n, h)
-			log_add("%s · %s %d · 가로줄 전체" % [who, D.face_name(f), n])
+			log_add("%s · %s %d · 아래 적까지" % [who, D.face_name(f), n])
 		"momentum":
 			hit_enemy(target, n, h)
 			h["streak"] += 1
@@ -808,7 +762,7 @@ func use_die(i: int, target = null) -> bool:
 			shield_hero(target, n)
 			log_add("%s · 방어 %d → %s" % [who, n, hero_label(target)])
 		"shieldadj":
-			for x in units_in(heroes, shape_cells("cross", int(h["c"]), int(h["r"]))):
+			for x in shape_units(heroes, "cross", h):
 				shield_hero(x, n)
 			log_add("%s · 맞물림 방어 %d" % [who, n])
 		"taunt":
@@ -924,7 +878,7 @@ func use_die(i: int, target = null) -> bool:
 			if h["double"]:
 				cb *= 2
 			h["heat"] = 0
-			for e in units_in(enemies, shape_cells("cross", int(target["c"]), int(target["r"]))):
+			for e in shape_units(enemies, "cross", target):
 				hit_enemy(e, cb, h)
 			log_add("%s · 연소 %d → %s" % [who, cb, target["name"]])
 		"shatter":
@@ -1127,7 +1081,7 @@ func enemy_step(e: Dictionary) -> void:
 	var vs := enemy_victims(e)
 	if f["k"] in ["atk", "all", "poison", "hex"] and vs.is_empty():
 		ev("enemy", e["i"], "빗나감", "blank")
-		log_add("%s의 행동이 빈 칸에 빗나감" % e["name"])
+		log_add("%s의 행동이 대상을 잃고 빗나감" % e["name"])
 	match f["k"]:
 		"atk", "all":
 			for t in vs:
@@ -1178,22 +1132,4 @@ func end_turn() -> void:
 
 
 func _enemy_shuffle() -> void:
-	# now and then one enemy steps to a free neighbouring cell
-	if rng.randf() > 0.35:
-		return
-	var live := live_enemies()
-	if live.is_empty():
-		return
-	var e: Dictionary = live[rng.randi_range(0, live.size() - 1)]
-	var opts := []
-	for d in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
-		var c: int = int(e["c"]) + int(d[0])
-		var r: int = int(e["r"]) + int(d[1])
-		if c >= 0 and c < 3 and r >= 0 and r < 3 and unit_at(enemies, c, r).is_empty():
-			opts.append([c, r])
-	if opts.is_empty():
-		return
-	var pick: Array = opts[rng.randi_range(0, opts.size() - 1)]
-	e["c"] = int(pick[0])
-	e["r"] = int(pick[1])
-	log_add("%s 자리 이동" % e["name"])
+	pass

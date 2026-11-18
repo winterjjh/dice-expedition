@@ -8,6 +8,8 @@ var col := Color.WHITE
 var font: Font
 var boss := false
 var plain := false
+var bust := false   # show only the head and shoulders, for the small unit panels
+static var bust_cache := {}
 
 const OUTLINE := """
 shader_type canvas_item;
@@ -62,7 +64,10 @@ func _draw() -> void:
 	var o := (size - Vector2(s, s)) * 0.5
 	if tex != null and plain:
 		# cut-out sprite: no tile behind it
-		draw_texture_rect(tex, Rect2(o, Vector2(s, s)), false)
+		if bust:
+			draw_texture_rect_region(tex, Rect2(o, Vector2(s, s)), _bust_region())
+		else:
+			draw_texture_rect(tex, Rect2(o, Vector2(s, s)), false)
 		return
 	var box := StyleBoxFlat.new()
 	box.bg_color = col.darkened(0.62)
@@ -79,3 +84,19 @@ func _draw() -> void:
 		if font != null:
 			var fs: int = int(s * 0.5)
 			draw_string(font, o + Vector2(0, s * 0.5 + fs * 0.36), letter, HORIZONTAL_ALIGNMENT_CENTER, s, fs, col.lightened(0.25))
+
+
+func _bust_region() -> Rect2:
+	if bust_cache.has(tex):
+		return bust_cache[tex]
+	var full := Rect2(Vector2.ZERO, tex.get_size())
+	var out := full
+	var img: Image = tex.get_image()
+	if img != null:
+		if img.is_compressed():
+			img.decompress()
+		var used: Rect2i = img.get_used_rect()
+		var q: float = minf(float(used.size.x), float(used.size.y) * 0.56)
+		out = Rect2(used.position.x + (used.size.x - q) * 0.5, maxf(0.0, used.position.y - q * 0.06), q, q)
+	bust_cache[tex] = out
+	return out
