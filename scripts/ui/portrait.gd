@@ -9,7 +9,9 @@ var font: Font
 var boss := false
 var plain := false
 var bust := false   # show only the head and shoulders, for the small unit panels
+var fit := false    # zoom in on the drawn pixels so small creatures fill the frame
 static var bust_cache := {}
+static var fit_cache := {}
 
 const OUTLINE := """
 shader_type canvas_item;
@@ -66,6 +68,8 @@ func _draw() -> void:
 		# cut-out sprite: no tile behind it
 		if bust:
 			draw_texture_rect_region(tex, Rect2(o, Vector2(s, s)), _bust_region())
+		elif fit:
+			draw_texture_rect_region(tex, Rect2(o, Vector2(s, s)), _fit_region())
 		else:
 			draw_texture_rect(tex, Rect2(o, Vector2(s, s)), false)
 		return
@@ -99,4 +103,20 @@ func _bust_region() -> Rect2:
 		var q: float = minf(float(used.size.x), float(used.size.y) * 0.56)
 		out = Rect2(used.position.x + (used.size.x - q) * 0.5, maxf(0.0, used.position.y - q * 0.06), q, q)
 	bust_cache[tex] = out
+	return out
+
+
+func _fit_region() -> Rect2:
+	if fit_cache.has(tex):
+		return fit_cache[tex]
+	var out := Rect2(Vector2.ZERO, tex.get_size())
+	var img: Image = tex.get_image()
+	if img != null:
+		if img.is_compressed():
+			img.decompress()
+		var used: Rect2i = img.get_used_rect()
+		var q: float = minf(maxf(float(used.size.x), float(used.size.y)) * 1.08, out.size.x)
+		var c := Vector2(used.position) + Vector2(used.size) * 0.5
+		out = Rect2((c - Vector2(q, q) * 0.5).clamp(Vector2.ZERO, out.size - Vector2(q, q)), Vector2(q, q))
+	fit_cache[tex] = out
 	return out

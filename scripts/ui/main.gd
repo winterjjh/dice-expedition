@@ -52,10 +52,10 @@ var info_default := ""
 var arena: Control = null      # the open middle of the fight screen where loose dice lie
 var arena_dice := []           # dice to drop into the arena once it has its size
 var tipbox: CenterContainer = null
-const PANEL_W := 318.0
-const PANEL_H := 92.0
-const SLOT := 76.0
-const ARENA_DIE := 84.0
+const PANEL_W := 336.0
+const PANEL_H := 100.0
+const SLOT := 84.0
+const ARENA_DIE := 92.0
 
 
 func _ready() -> void:
@@ -973,6 +973,7 @@ func enemy_panel(parent: Node, e: Dictionary, mode: String) -> void:
 	v.add_child(pips)
 	_badge_row(v, _enemy_badges(e))
 	var po = Portrait.new()
+	po.fit = true
 	po.setup("enemy", str(e["key"]), str(e["name"]), CAT["atk"], ph - 18, bold, boss)
 	po.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	if e["stunned"] or e["frozen"]:
